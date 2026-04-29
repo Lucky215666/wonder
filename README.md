@@ -2,6 +2,9 @@
 
 一个面向个人学习与科研场景的 AI 学习资料整理 Agent。系统支持上传 PDF、TXT、Markdown、DOCX 文件，自动生成科研阅读卡片、项目关联分析、论文写作素材和后续任务清单。
 
+<img width="2481" height="1242" alt="image" src="https://github.com/user-attachments/assets/cd3ab1f3-9c14-4f48-911a-5795ed1e1d29" />
+
+
 ## 功能特性
 
 - 支持 PDF / TXT / Markdown / DOCX 文件上传
