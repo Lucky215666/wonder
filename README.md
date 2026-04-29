@@ -18,23 +18,31 @@
 ## 项目结构
 
 ```txt
-research_agent/
-├── app.py
-├── requirements.txt
-├── .env.example
-├── .gitignore
+note-forge/
+├── app.py              # Streamlit 主应用
+├── requirements.txt    # 依赖列表
+├── .env.example       # 环境变量示例
+├── .gitignore         # Git 忽略配置
 ├── README.md
-└── outputs/
+└── outputs/           # 分析报告输出目录
     └── .gitkeep
 ```
 
 ## 安装与运行
 
 ```bash
-git clone <your-repo-url>
-cd research_agent
+# 克隆项目
+git clone https://github.com/BZ2116/note-forge.git
+cd note-forge
+
+# 安装依赖
 pip install -r requirements.txt
+
+# 配置环境变量
 cp .env.example .env
+# 编辑 .env 填入你的 API Key
+
+# 运行
 streamlit run app.py
 ```
 
@@ -60,5 +68,3 @@ MODEL_NAME=MiniMax-M2.7
 4. 点击“开始分析”。
 5. 查看阅读卡片、项目关联、写作素材、待办清单和完整报告。
 6. 可在底部继续基于当前资料进行问答。
-
-

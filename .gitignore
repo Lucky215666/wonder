@@ -33,3 +33,6 @@ test.md
 
 # Log files
 *.log
+
+# Claude Code
+.claude/
