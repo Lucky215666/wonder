@@ -33,6 +33,8 @@ def test_update_config():
         config_path = os.path.join(tmpdir, "config.json")
         mgr = ConfigManager(config_path)
         mgr.load()
-        mgr.update({"model": {"provider": "DeepSeek"}})
+        result = mgr.update({"model": {"provider": "DeepSeek"}})
         config = mgr.load()
         assert config["model"]["provider"] == "DeepSeek"
+        assert config["model"]["model_name"] == "MiniMax-M2.7"  # preserved
+        assert result["model"]["provider"] == "DeepSeek"  # return value

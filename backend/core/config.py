@@ -1,3 +1,4 @@
+import copy
 import json
 import os
 from typing import Any, Dict
@@ -33,7 +34,7 @@ class ConfigManager:
     def load(self) -> Dict[str, Any]:
         if not os.path.exists(self.config_path):
             self.save(DEFAULT_CONFIG)
-            return DEFAULT_CONFIG.copy()
+            return copy.deepcopy(DEFAULT_CONFIG)
         with open(self.config_path, "r", encoding="utf-8") as f:
             return json.load(f)
 
