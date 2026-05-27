@@ -39,3 +39,10 @@ test.md
 
 # Claude Code
 .claude/
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/
+
+# Vite build output
+dist/
