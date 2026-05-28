@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.api.config import router as config_router
 from backend.api.history import router as history_router
 from backend.api.analysis import router as analysis_router
+from backend.api.knowledge import router as knowledge_router
 
 app = FastAPI(title="Note Forge API", version="2.0.0")
 
@@ -18,6 +19,7 @@ app.add_middleware(
 app.include_router(config_router)
 app.include_router(history_router)
 app.include_router(analysis_router)
+app.include_router(knowledge_router)
 
 
 @app.get("/api/health")
