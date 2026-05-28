@@ -54,6 +54,52 @@
           </el-form-item>
         </el-form>
 
+        <div class="section-divider"></div>
+
+        <div class="section-title">Embedding 配置</div>
+        <el-form label-position="top" :model="draft" class="settings-form">
+          <div class="form-row">
+            <el-form-item label="服务商" class="form-col">
+              <el-select v-model="draft.embedding!.provider" placeholder="选择 Embedding 服务商">
+                <el-option label="OpenAI" value="OpenAI" />
+                <el-option label="MiniMax" value="MiniMax" />
+                <el-option label="自定义" value="自定义" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="模型名称" class="form-col">
+              <el-input v-model="draft.embedding!.modelName" placeholder="如 text-embedding-3-small" />
+            </el-form-item>
+          </div>
+          <el-form-item label="API Key">
+            <el-input v-model="draft.embedding!.apiKey" type="password" show-password placeholder="sk-..." />
+          </el-form-item>
+          <div class="form-row">
+            <el-form-item label="Base URL" class="form-col">
+              <el-input v-model="draft.embedding!.baseUrl" placeholder="https://api.openai.com/v1" />
+            </el-form-item>
+            <el-form-item label="向量维度" class="form-col">
+              <el-input-number v-model="draft.embedding!.dimensions" :min="64" :max="4096" :step="64" />
+            </el-form-item>
+          </div>
+        </el-form>
+
+        <div class="section-divider"></div>
+
+        <div class="section-title">知识库配置</div>
+        <el-form label-position="top" :model="draft" class="settings-form">
+          <div class="form-row">
+            <el-form-item label="启用知识库" class="form-col">
+              <el-switch v-model="draft.knowledge!.enabled" />
+            </el-form-item>
+            <el-form-item label="分析后自动入库" class="form-col">
+              <el-switch v-model="draft.knowledge!.autoIndex" />
+            </el-form-item>
+          </div>
+          <el-form-item label="检索上下文最大 Token 数">
+            <el-input-number v-model="draft.knowledge!.maxContextTokens" :min="1000" :max="32000" :step="1000" />
+          </el-form-item>
+        </el-form>
+
         <div class="form-actions">
           <el-button type="primary" :loading="config.saving" @click="save">保存设置</el-button>
         </div>
@@ -75,6 +121,22 @@ const draft = reactive<AppConfig>(structuredClone(DEFAULT_CONFIG))
 onMounted(async () => {
   await config.load()
   Object.assign(draft, structuredClone(config.config))
+  if (!draft.embedding) {
+    draft.embedding = {
+      provider: 'OpenAI',
+      apiKey: '',
+      baseUrl: 'https://api.openai.com/v1',
+      modelName: 'text-embedding-3-small',
+      dimensions: 1536,
+    }
+  }
+  if (!draft.knowledge) {
+    draft.knowledge = {
+      enabled: true,
+      autoIndex: true,
+      maxContextTokens: 8000,
+    }
+  }
 })
 
 async function save() {
