@@ -28,6 +28,20 @@ export interface LLMResponse {
   usage?: LLMUsage
 }
 
+export interface EmbeddingConfig {
+  provider: string
+  apiKey: string
+  baseUrl: string
+  modelName: string
+  dimensions: number
+}
+
+export interface KnowledgeConfig {
+  enabled: boolean
+  autoIndex: boolean
+  maxContextTokens: number
+}
+
 export interface AppConfig {
   model: LLMConfig
   research: {
@@ -38,4 +52,6 @@ export interface AppConfig {
     maxChars: number
     overlap: number
   }
+  embedding?: EmbeddingConfig
+  knowledge?: KnowledgeConfig
 }

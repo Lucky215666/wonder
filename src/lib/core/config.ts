@@ -16,6 +16,18 @@ export const DEFAULT_CONFIG: AppConfig = {
     maxChars: 7000,
     overlap: 500,
   },
+  embedding: {
+    provider: 'OpenAI',
+    apiKey: '',
+    baseUrl: 'https://api.openai.com/v1',
+    modelName: 'text-embedding-3-small',
+    dimensions: 1536,
+  },
+  knowledge: {
+    enabled: true,
+    autoIndex: true,
+    maxContextTokens: 8000,
+  },
 }
 
 export class ConfigManager {
@@ -37,6 +49,8 @@ export class ConfigManager {
       model: { ...structuredClone(DEFAULT_CONFIG.model), ...saved.model },
       research: { ...structuredClone(DEFAULT_CONFIG.research), ...saved.research },
       analysis: { ...structuredClone(DEFAULT_CONFIG.analysis), ...saved.analysis },
+      embedding: { ...structuredClone(DEFAULT_CONFIG.embedding!), ...saved.embedding },
+      knowledge: { ...structuredClone(DEFAULT_CONFIG.knowledge!), ...saved.knowledge },
     } as AppConfig
   }
 
