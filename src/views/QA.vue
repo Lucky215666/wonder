@@ -222,13 +222,23 @@ onMounted(async () => {
 .context-bar {
   display: flex;
   gap: 12px;
+  align-items: center;
   margin-bottom: var(--space-md);
+  padding: 12px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
   animation: wonder-fade-up 0.2s var(--ease-out) both;
   animation-delay: 0.05s;
 }
 
 .mode-switch {
   flex-shrink: 0;
+}
+
+.mode-switch :deep(.el-radio-button__inner) {
+  font-size: 12px;
+  padding: 6px 14px;
 }
 
 .record-select {
@@ -287,5 +297,16 @@ onMounted(async () => {
   padding: 14px 16px;
   border-top: 1px solid var(--border-light);
   background: var(--bg-card);
+  position: relative;
+}
+
+.input-bar::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 24px;
+  right: 24px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent-light), transparent);
 }
 </style>

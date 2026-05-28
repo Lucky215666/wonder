@@ -60,16 +60,22 @@
 
       <!-- Search results -->
       <section v-if="knowledge.searchResults.length" class="search-results">
-        <h3 class="section-title">搜索结果</h3>
+        <div class="section-title-row">
+          <h3 class="section-title">搜索结果</h3>
+          <span class="result-count">{{ knowledge.searchResults.length }} 条匹配</span>
+        </div>
         <div
           v-for="(result, idx) in knowledge.searchResults"
           :key="result.id"
           class="result-item"
           :style="{ '--i': Math.min(idx, 8) }"
         >
-          <div class="result-doc">{{ result.document }}</div>
+          <div class="result-snippet">
+            <span class="snippet-quote">&ldquo;</span>
+            {{ result.document }}
+          </div>
           <div class="result-meta">
-            <el-tag size="small" type="info">距离: {{ result.distance.toFixed(3) }}</el-tag>
+            <el-tag size="small" type="info" effect="plain">相似度 {{ (1 - result.distance).toFixed(2) }}</el-tag>
           </div>
         </div>
       </section>
@@ -87,6 +93,7 @@
           class="doc-card"
           :style="{ '--i': Math.min(idx, 8) }"
         >
+          <div class="doc-card-accent"></div>
           <div class="doc-card-body" @click="openDetail(doc.id)">
             <div class="doc-card-title">{{ doc.file_name }}</div>
             <div class="doc-card-summary">{{ doc.summary }}</div>
@@ -319,29 +326,60 @@ onMounted(() => {
   animation: wonder-fade-up 0.2s var(--ease-out) both;
 }
 
+.section-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
 .section-title {
   font-size: 14px;
   font-weight: 600;
   color: var(--ink-secondary);
-  margin: 0 0 10px;
+  margin: 0;
+}
+
+.result-count {
+  font-size: 12px;
+  color: var(--ink-ghost);
 }
 
 .result-item {
   background: var(--bg-card);
   border: 1px solid var(--border-light);
-  border-radius: var(--radius-sm);
-  padding: 12px 16px;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding: 14px 18px;
   margin-bottom: 8px;
+  transition: border-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
   animation: wonder-fade-up 0.2s var(--ease-out) both;
   animation-delay: calc(var(--i) * 0.04s);
 }
 
-.result-doc {
+.result-item:hover {
+  border-left-color: var(--accent-hover);
+  box-shadow: var(--shadow-sm);
+}
+
+.result-snippet {
   font-size: 13px;
   color: var(--ink-secondary);
-  line-height: 1.6;
-  margin-bottom: 6px;
+  line-height: 1.7;
+  margin-bottom: 8px;
   font-family: var(--font-serif);
+  position: relative;
+}
+
+.snippet-quote {
+  color: var(--accent);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1;
+  margin-right: 2px;
+  vertical-align: -2px;
+  opacity: 0.5;
 }
 
 .result-meta {
@@ -361,27 +399,46 @@ onMounted(() => {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
-  padding: 16px 20px;
+  padding: 0;
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: stretch;
   box-shadow: var(--shadow-sm);
+  position: relative;
+  overflow: hidden;
   transition:
     transform var(--duration-fast) var(--ease-out),
-    box-shadow var(--duration-fast) var(--ease-out);
+    box-shadow var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-standard);
   animation: wonder-fade-up 0.2s var(--ease-out) both;
   animation-delay: calc(var(--i) * 0.05s);
+}
+
+.doc-card-accent {
+  width: 3px;
+  background: var(--border-light);
+  flex-shrink: 0;
+  transition: background var(--duration-fast) var(--ease-standard),
+    width var(--duration-fast) var(--ease-standard);
+  border-radius: var(--radius-card) 0 0 var(--radius-card);
 }
 
 .doc-card:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow);
+  border-color: var(--accent);
+}
+
+.doc-card:hover .doc-card-accent {
+  background: var(--accent);
+  width: 4px;
 }
 
 .doc-card-body {
   flex: 1;
   min-width: 0;
   cursor: pointer;
+  padding: 16px 20px;
 }
 
 .doc-card-title {
@@ -423,7 +480,9 @@ onMounted(() => {
   opacity: 0;
   transition: opacity var(--duration-fast) var(--ease-standard);
   flex-shrink: 0;
-  margin-left: 12px;
+  display: flex;
+  align-items: center;
+  padding-right: 16px;
 }
 
 .doc-card:hover .doc-card-actions {
@@ -497,24 +556,42 @@ onMounted(() => {
   font-size: 14px;
 }
 
+/* Drawer header accent */
+:deep(.el-drawer__header) {
+  border-bottom: 1px solid var(--border-light);
+  padding: 16px 20px;
+  margin-bottom: 0;
+}
+
+:deep(.el-drawer__body) {
+  padding: 20px;
+}
+
 .drawer-content {
   padding: 0 4px;
 }
 
 .detail-tabs :deep(.el-tabs__header) {
-  margin-bottom: 16px;
+  margin-bottom: 20px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border-light);
 }
 
 .detail-tabs :deep(.el-tabs__item) {
   font-size: 13px;
+  padding: 0 16px;
 }
 
 .tab-body {
   font-size: 14px;
-  line-height: 1.8;
+  line-height: 1.9;
   color: var(--ink-secondary);
   white-space: pre-wrap;
   word-break: break-word;
+  padding: 16px;
+  background: var(--bg);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
 }
 
 .serif-text {
