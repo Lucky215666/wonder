@@ -56,6 +56,12 @@
             </span>
             <span class="nav-label">追溯问答</span>
           </RouterLink>
+          <RouterLink to="/knowledge" class="nav-item">
+            <span class="nav-icon">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 2h8l4 4v12a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z"/><path d="M12 2v4h4"/><path d="M7 10h6M7 13h4"/></svg>
+            </span>
+            <span class="nav-label">知识库</span>
+          </RouterLink>
         </div>
       </nav>
 
