@@ -11,6 +11,13 @@ DEFAULT_CONFIG = {
         "base_url": "https://api.minimaxi.com/v1",
         "model_name": "MiniMax-M2.7",
     },
+    "embedding": {
+        "provider": "OpenAI",
+        "api_key": "",
+        "base_url": "https://api.openai.com/v1",
+        "model_name": "text-embedding-3-small",
+        "dimensions": 1536,
+    },
     "research": {
         "background": "I am a student interested in AI and research.",
         "writing_style": "本科毕业论文风格，表达清晰，避免过度复杂",
@@ -23,6 +30,13 @@ DEFAULT_CONFIG = {
     "analysis": {
         "max_chars": 7000,
         "overlap": 500,
+    },
+    "knowledge": {
+        "enabled": True,
+        "chroma_path": "data/chroma",
+        "sqlite_path": "data/knowledge.db",
+        "auto_index": True,
+        "max_context_tokens": 8000,
     },
 }
 
