@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Note Forge",
+  "productName": "文答",
   "version": "2.0.0",
-  "identifier": "com.noteforge.desktop",
+  "identifier": "com.wonder.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Note Forge",
+        "title": "文答 Wonder",
         "width": 1200,
         "height": 820,
         "minWidth": 960,
@@ -26,6 +26,14 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": []
+    "icon": [
+      "icons/32x32.png",
+      "icons/64x64.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png",
+      "icons/icon.ico",
+      "icons/icon.icns"
+    ]
   }
 }
