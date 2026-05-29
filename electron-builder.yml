@@ -1,5 +1,6 @@
 appId: com.wonder.app
 productName: Wonder
+icon: public/icon.ico
 directories:
   output: release
 files:
@@ -8,11 +9,13 @@ files:
   - dist-server/
   - node_modules/
   - package.json
-extraResources:
-  - from: data/
-    to: data/
+  - public/
+asarUnpack:
+  - node_modules/better-sqlite3/**
 win:
-  target: nsis
+  target: dir
+  signAndEditExecutable: false
+  forceCodeSigning: false
 mac:
   target: dmg
 linux:

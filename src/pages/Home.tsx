@@ -1,28 +1,11 @@
-import { Card, Typography, Result, Button } from 'antd'
+import { Card, Typography } from 'antd'
 import FileUpload from '../components/FileUpload'
 import StepProgress from '../components/StepProgress'
+import ApiGuard from '../components/ApiGuard'
 import { useAnalysisStore } from '../stores/analysis'
-import { useConfigStore } from '../stores/config'
-import { useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
 
 export default function Home() {
-  const navigate = useNavigate()
-  const { config, loadConfig, loaded } = useConfigStore()
-  const { steps, running, documentId, analyze, reset } = useAnalysisStore()
-
-  useEffect(() => { loadConfig() }, [loadConfig])
-
-  if (loaded && !config) {
-    return (
-      <Result
-        status="warning"
-        title="尚未配置 API"
-        subTitle="请先完成初始配置"
-        extra={<Button type="primary" onClick={() => navigate('/welcome')}>去配置</Button>}
-      />
-    )
-  }
+  const { steps, documentId, analyze, reset } = useAnalysisStore()
 
   const handleFile = (fileName: string, fileType: string, text: string) => {
     reset()
@@ -30,21 +13,31 @@ export default function Home() {
   }
 
   return (
-    <div>
-      <Typography.Title level={4}>文档分析</Typography.Title>
-      <Card>
-        <FileUpload onFileContent={handleFile} />
-      </Card>
-      {steps.length > 0 && (
-        <Card style={{ marginTop: 16 }}>
-          <StepProgress steps={steps} />
+    <ApiGuard require="analysis">
+      <div className="wonder-page wonder-stagger">
+        <div className="wonder-page-header">
+          <Typography.Title level={4}>文档分析</Typography.Title>
+          <Typography.Text type="secondary">上传学术文档，AI 自动提取关键信息</Typography.Text>
+        </div>
+
+        <Card>
+          <FileUpload onFileContent={handleFile} />
         </Card>
-      )}
-      {documentId && (
-        <Card style={{ marginTop: 16 }}>
-          <Typography.Text>分析完成！文档 ID: {documentId}</Typography.Text>
-        </Card>
-      )}
-    </div>
+
+        {steps.length > 0 && (
+          <Card style={{ marginTop: 16 }}>
+            <StepProgress steps={steps} />
+          </Card>
+        )}
+
+        {documentId && (
+          <Card style={{ marginTop: 16, textAlign: 'center' }}>
+            <Typography.Text style={{ color: 'var(--accent-text)', fontWeight: 500 }}>
+              分析完成！文档 ID: {documentId}
+            </Typography.Text>
+          </Card>
+        )}
+      </div>
+    </ApiGuard>
   )
 }

@@ -1,44 +1,58 @@
-import { useState } from 'react'
+import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Card, Input, Button, Typography, Space, message } from 'antd'
+import { Typography } from 'antd'
+import { ThunderboltOutlined } from '@ant-design/icons'
 import { useConfigStore } from '../stores/config'
-import type { AppConfig } from '../lib/llm/types'
+import { useUIStore } from '../stores/ui'
 
 export default function Welcome() {
   const navigate = useNavigate()
-  const { saveConfig } = useConfigStore()
-  const [form, setForm] = useState({
-    provider: 'openai-compatible' as const,
-    baseUrl: 'https://api.minimaxi.com/v1',
-    apiKey: '',
-    model: 'MiniMax-M2.7',
-  })
+  const { config, loaded } = useConfigStore()
+  const { openSettings } = useUIStore()
 
-  const handleSave = async () => {
-    const config: AppConfig = {
-      provider: form.provider,
-      baseUrl: form.baseUrl,
-      apiKey: form.apiKey,
-      model: form.model,
-      embeddingModel: 'text-embedding-3-small',
+  // 已有配置则直接进主页
+  useEffect(() => {
+    if (loaded && config?.provider && config?.apiKey && config?.model) {
+      navigate('/', { replace: true })
     }
-    await saveConfig(config)
-    message.success('配置已保存')
-    navigate('/')
-  }
+  }, [loaded, config, navigate])
 
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
-      <Card style={{ width: 500 }}>
-        <Typography.Title level={3}>欢迎使用 Wonder</Typography.Title>
-        <Typography.Paragraph>请先配置 LLM API 密钥</Typography.Paragraph>
-        <Space direction="vertical" style={{ width: '100%' }}>
-          <Input placeholder="API Base URL" value={form.baseUrl} onChange={e => setForm(f => ({ ...f, baseUrl: e.target.value }))} />
-          <Input.Password placeholder="API Key" value={form.apiKey} onChange={e => setForm(f => ({ ...f, apiKey: e.target.value }))} />
-          <Input placeholder="Model" value={form.model} onChange={e => setForm(f => ({ ...f, model: e.target.value }))} />
-          <Button type="primary" block onClick={handleSave} disabled={!form.apiKey}>开始使用</Button>
-        </Space>
-      </Card>
+    <div style={{
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'center',
+      minHeight: '100vh',
+      background: 'var(--bg)',
+    }}>
+      <div style={{ textAlign: 'center', maxWidth: 440 }}>
+        <div style={{
+          width: 72,
+          height: 72,
+          borderRadius: 20,
+          background: 'linear-gradient(135deg, var(--accent), #7BA08E)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          margin: '0 auto 24px',
+          boxShadow: '0 8px 24px rgba(91, 127, 110, 0.3)',
+        }}>
+          <ThunderboltOutlined style={{ fontSize: 30, color: '#fff' }} />
+        </div>
+        <Typography.Title level={2} style={{ fontFamily: 'var(--font-serif)', marginBottom: 8 }}>
+          欢迎使用 Wonder
+        </Typography.Title>
+        <Typography.Text style={{ display: 'block', color: 'var(--ink-caption)', marginBottom: 32, fontSize: 15, lineHeight: 1.6 }}>
+          请先配置 LLM API 以开始学术分析
+        </Typography.Text>
+        <button
+          className="wonder-provider-card wonder-provider-card--active"
+          style={{ display: 'inline-flex', padding: '12px 32px', fontSize: 15 }}
+          onClick={() => openSettings('analysis')}
+        >
+          打开设置
+        </button>
+      </div>
     </div>
   )
 }

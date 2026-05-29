@@ -1,5 +1,4 @@
-import { Steps } from 'antd'
-import { LoadingOutlined, CheckCircleOutlined } from '@ant-design/icons'
+import { CheckOutlined, LoadingOutlined, CloseOutlined } from '@ant-design/icons'
 
 interface Step {
   step: string
@@ -12,11 +11,25 @@ interface Props {
 }
 
 export default function StepProgress({ steps }: Props) {
-  const items = steps.map(s => ({
-    title: s.label,
-    status: s.status === 'done' ? 'finish' as const : s.status === 'error' ? 'error' as const : 'process' as const,
-    icon: s.status === 'running' ? <LoadingOutlined /> : undefined,
-  }))
-
-  return <Steps current={steps.length - 1} items={items} />
+  return (
+    <div className="wonder-steps-card">
+      {steps.map((step, i) => (
+        <div key={step.step}>
+          <div className="wonder-step-item">
+            <div className={`wonder-step-dot wonder-step-dot--${step.status}`}>
+              {step.status === 'done' && <CheckOutlined />}
+              {step.status === 'running' && <LoadingOutlined />}
+              {step.status === 'error' && <CloseOutlined />}
+            </div>
+            <span className={`wonder-step-label wonder-step-label--${step.status}`}>
+              {step.label}
+            </span>
+          </div>
+          {i < steps.length - 1 && (
+            <div className={`wonder-step-connector ${step.status === 'done' ? 'wonder-step-connector--done' : ''}`} />
+          )}
+        </div>
+      ))}
+    </div>
+  )
 }

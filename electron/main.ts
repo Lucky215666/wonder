@@ -1,10 +1,11 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, ipcMain, screen } from 'electron'
 import path from 'path'
-import { spawn, ChildProcess } from 'child_process'
 import net from 'net'
 
 let mainWindow: BrowserWindow | null = null
-let serverProcess: ChildProcess | null = null
+
+const MIN_WINDOW_WIDTH = 900
+const MIN_WINDOW_HEIGHT = 680
 
 function findFreePort(): Promise<number> {
   return new Promise((resolve) => {
@@ -16,7 +17,7 @@ function findFreePort(): Promise<number> {
   })
 }
 
-function waitForServer(port: number, timeout = 10000): Promise<void> {
+function waitForServer(port: number, timeout = 15000): Promise<void> {
   return new Promise((resolve, reject) => {
     const start = Date.now()
     const check = () => {
@@ -34,14 +35,42 @@ function waitForServer(port: number, timeout = 10000): Promise<void> {
 
 async function createWindow() {
   const port = await findFreePort()
-  serverProcess = spawn('node', [path.join(__dirname, '../dist-server/index.js')], {
-    env: { ...process.env, PORT: String(port) },
-    stdio: 'pipe',
-  })
-  await waitForServer(port)
+
+  // Set env vars before loading server module
+  process.env.PORT = String(port)
+  process.env.DATA_DIR = path.join(app.getPath('userData'), 'data')
+
+  // Load server in-process (no child process spawn — avoids system Node dependency)
+  try {
+    require(path.join(__dirname, '../dist-server/index.js'))
+  } catch (err) {
+    console.error('Failed to start server:', err)
+    app.quit()
+    return
+  }
+
+  try {
+    await waitForServer(port)
+  } catch (err) {
+    console.error('Server did not start in time:', err)
+    app.quit()
+    return
+  }
+
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize
+  const winW = Math.max(MIN_WINDOW_WIDTH, Math.min(1200, width))
+  const winH = Math.max(MIN_WINDOW_HEIGHT, Math.min(800, height))
+
   mainWindow = new BrowserWindow({
-    width: 1100,
-    height: 780,
+    width: winW,
+    height: winH,
+    minWidth: MIN_WINDOW_WIDTH,
+    minHeight: MIN_WINDOW_HEIGHT,
+    x: Math.max(0, Math.round((width - winW) / 2)),
+    y: Math.max(0, Math.round((height - winH) / 2)),
+    frame: false,
+    backgroundColor: '#FAF8F3',
+    icon: path.join(__dirname, '../public/icon.ico'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -55,10 +84,24 @@ async function createWindow() {
     mainWindow.loadURL(`http://127.0.0.1:${port}`)
   }
   mainWindow.on('closed', () => { mainWindow = null })
+
+  mainWindow.on('maximize', () => {
+    mainWindow?.webContents.send('window:maximize-change', true)
+  })
+  mainWindow.on('unmaximize', () => {
+    mainWindow?.webContents.send('window:maximize-change', false)
+  })
 }
 
 app.on('ready', createWindow)
 app.on('window-all-closed', () => {
-  if (serverProcess) serverProcess.kill()
   app.quit()
 })
+
+// 窗口控制 IPC
+ipcMain.on('window:minimize', () => mainWindow?.minimize())
+ipcMain.on('window:maximize', () => {
+  if (mainWindow?.isMaximized()) mainWindow.unmaximize()
+  else mainWindow?.maximize()
+})
+ipcMain.on('window:close', () => mainWindow?.close())
