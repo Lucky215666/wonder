@@ -1,23 +1,24 @@
-import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vite'
-import vue from '@vitejs/plugin-vue'
+import react from '@vitejs/plugin-react'
+import path from 'path'
 
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [react()],
   resolve: {
     alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url)),
+      '@': path.resolve(__dirname, './src'),
     },
   },
-  clearScreen: false,
   server: {
-    port: 1420,
-    strictPort: true,
+    port: 5173,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:9800',
+        changeOrigin: true,
+      },
+    },
   },
-  envPrefix: ['VITE_', 'TAURI_'],
-  test: {
-    environment: 'jsdom',
-    setupFiles: ['./src/test/setup.ts'],
-    globals: true,
+  build: {
+    outDir: 'dist/renderer',
   },
 })

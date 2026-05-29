@@ -137,7 +137,7 @@ function buildFullReport(input: {
   todoList: string
   matching?: string
 }): string {
-  return `# 文答 Wonder 分析报告
+  return `# Wonder 分析报告
 
 - File: ${input.fileName}
 - Model: ${input.model}

@@ -1,0 +1,26 @@
+appId: com.wonder.app
+productName: Wonder
+icon: public/icon.ico
+directories:
+  output: release
+files:
+  - dist/
+  - dist-electron/
+  - dist-server/
+  - node_modules/
+  - package.json
+  - public/
+asarUnpack:
+  - node_modules/better-sqlite3/**
+win:
+  target: dir
+  signAndEditExecutable: false
+  forceCodeSigning: false
+mac:
+  target: dmg
+linux:
+  target: AppImage
+nsis:
+  oneClick: false
+  perMachine: true
+  allowToChangeInstallationDirectory: true

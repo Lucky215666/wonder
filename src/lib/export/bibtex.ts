@@ -9,7 +9,7 @@ export function exportBibTeX(record: HistoryRecord): string {
   return `@article{${key},
   title = {${title}},
   year = {${year}},
-  note = {Analyzed by 文答 Wonder on ${date}}
+  note = {Analyzed by Wonder on ${date}}
 }
 `
 }

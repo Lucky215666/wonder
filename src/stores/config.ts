@@ -1,29 +1,25 @@
-import { defineStore } from 'pinia'
-import { ConfigManager, DEFAULT_CONFIG } from '@/lib/core/config'
-import { TauriStorageAdapter } from '@/lib/core/storage'
-import type { AppConfig } from '@/lib/llm/types'
+import { create } from 'zustand'
+import { api } from '../services/api'
+import type { AppConfig } from '../lib/llm/types'
 
-const manager = new ConfigManager(new TauriStorageAdapter())
+interface ConfigState {
+  config: AppConfig | null
+  loaded: boolean
+  loadConfig: () => Promise<void>
+  saveConfig: (config: AppConfig) => Promise<void>
+}
 
-export const useConfigStore = defineStore('config', {
-  state: () => ({
-    config: structuredClone(DEFAULT_CONFIG) as AppConfig,
-    loaded: false,
-    saving: false,
-  }),
-  actions: {
-    async load() {
-      this.config = await manager.load()
-      this.loaded = true
-    },
-    async save(config: AppConfig) {
-      this.saving = true
-      try {
-        await manager.save(config)
-        this.config = structuredClone(config)
-      } finally {
-        this.saving = false
-      }
-    },
+export const useConfigStore = create<ConfigState>((set) => ({
+  config: null,
+  loaded: false,
+  loadConfig: async () => {
+    const data = await api.get<Record<string, string>>('/api/config')
+    const raw = data.appConfig
+    if (raw) set({ config: JSON.parse(raw), loaded: true })
+    else set({ loaded: true })
   },
-})
+  saveConfig: async (config) => {
+    await api.put('/api/config', { appConfig: JSON.stringify(config) })
+    set({ config })
+  },
+}))
