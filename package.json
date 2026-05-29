@@ -2,12 +2,13 @@
   "name": "wonder",
   "version": "1.0.0",
   "description": "",
-  "main": "dist/electron/main.js",
+  "main": "dist-electron/main.js",
   "scripts": {
     "dev": "concurrently \"vite\" \"tsx watch server/index.ts\"",
-    "dev:electron": "concurrently \"vite\" \"tsx watch server/index.ts\" \"wait-on http://localhost:5173 && electron .\"",
+    "dev:electron": "tsc -p tsconfig.electron.json && concurrently \"vite\" \"tsx watch server/index.ts\" \"wait-on http://localhost:5173 && electron .\"",
     "build": "vite build",
-    "build:electron": "npm run build && electron-builder",
+    "build:server": "tsc -p tsconfig.server.json && node -e \"require('fs').cpSync('server/db','dist-server/db',{recursive:true})\"",
+    "build:electron": "tsc -p tsconfig.electron.json && npm run build:server && vite build && electron-builder",
     "test": "vitest run"
   },
   "keywords": [],

@@ -4,7 +4,8 @@ directories:
   output: release
 files:
   - dist/
-  - server/
+  - dist-electron/
+  - dist-server/
   - node_modules/
   - package.json
 extraResources:

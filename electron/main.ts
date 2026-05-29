@@ -34,7 +34,7 @@ function waitForServer(port: number, timeout = 10000): Promise<void> {
 
 async function createWindow() {
   const port = await findFreePort()
-  serverProcess = spawn('node', [path.join(__dirname, '../server/index.js')], {
+  serverProcess = spawn('node', [path.join(__dirname, '../dist-server/index.js')], {
     env: { ...process.env, PORT: String(port) },
     stdio: 'pipe',
   })
