@@ -1,0 +1,22 @@
+appId: com.wonder.app
+productName: Wonder
+directories:
+  output: release
+files:
+  - dist/
+  - server/
+  - node_modules/
+  - package.json
+extraResources:
+  - from: data/
+    to: data/
+win:
+  target: nsis
+mac:
+  target: dmg
+linux:
+  target: AppImage
+nsis:
+  oneClick: false
+  perMachine: true
+  allowToChangeInstallationDirectory: true
