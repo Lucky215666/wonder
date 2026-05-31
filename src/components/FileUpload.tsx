@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { InboxOutlined, FileTextOutlined, CloseCircleOutlined } from '@ant-design/icons'
+import { InboxOutlined, FileTextOutlined, CloseCircleOutlined, LoadingOutlined } from '@ant-design/icons'
 import { message } from 'antd'
+import { api } from '../services/api'
 
 interface Props {
   onFileContent: (fileName: string, fileType: string, content: string) => void
@@ -10,6 +11,7 @@ interface Props {
 export default function FileUpload({ onFileContent, disabled }: Props) {
   const [dragging, setDragging] = useState(false)
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
+  const [parsing, setParsing] = useState(false)
 
   const processFile = async (file: File) => {
     if (disabled) return
@@ -18,14 +20,17 @@ export default function FileUpload({ onFileContent, disabled }: Props) {
       const text = await file.text()
       setSelectedFile(file.name)
       onFileContent(file.name, ext, text)
-    } else if (ext === 'pdf') {
-      const text = `[PDF file: ${file.name}] - parsing not yet integrated`
-      setSelectedFile(file.name)
-      onFileContent(file.name, 'pdf', text)
-    } else if (ext === 'docx') {
-      const text = `[DOCX file: ${file.name}] - parsing not yet integrated`
-      setSelectedFile(file.name)
-      onFileContent(file.name, 'docx', text)
+    } else if (ext === 'pdf' || ext === 'docx') {
+      setParsing(true)
+      try {
+        const { text, fileName } = await api.parseFile(file)
+        setSelectedFile(fileName)
+        onFileContent(fileName, ext, text)
+      } catch (err) {
+        message.error(err instanceof Error ? err.message : '文件解析失败')
+      } finally {
+        setParsing(false)
+      }
     } else {
       message.error('不支持的文件格式')
     }
@@ -34,13 +39,13 @@ export default function FileUpload({ onFileContent, disabled }: Props) {
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
     setDragging(false)
-    if (disabled) return
+    if (disabled || parsing) return
     const file = e.dataTransfer.files[0]
     if (file) processFile(file)
   }
 
   const handleClick = () => {
-    if (disabled) return
+    if (disabled || parsing) return
     const input = document.createElement('input')
     input.type = 'file'
     input.accept = '.pdf,.docx,.txt,.md'
@@ -49,6 +54,25 @@ export default function FileUpload({ onFileContent, disabled }: Props) {
       if (file) processFile(file)
     }
     input.click()
+  }
+
+  if (parsing) {
+    return (
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        padding: '14px 16px',
+        background: 'var(--accent-light)',
+        border: '1px solid var(--accent)',
+        borderRadius: 'var(--radius-card)',
+        gap: 12,
+      }}>
+        <LoadingOutlined style={{ fontSize: 20, color: 'var(--accent)' }} />
+        <span style={{ flex: 1, color: 'var(--ink-dense)', fontWeight: 500, fontSize: 14 }}>
+          正在解析文件...
+        </span>
+      </div>
+    )
   }
 
   if (selectedFile) {
@@ -78,7 +102,7 @@ export default function FileUpload({ onFileContent, disabled }: Props) {
 
   return (
     <div
-      className={`wonder-upload-zone ${dragging ? 'dragging' : ''} ${disabled ? 'wonder-upload-zone--disabled' : ''}`}
+      className={`wonder-upload-zone ${dragging ? 'dragging' : ''} ${(disabled || parsing) ? 'wonder-upload-zone--disabled' : ''}`}
       onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
       onDragLeave={() => setDragging(false)}
       onDrop={handleDrop}

@@ -19,6 +19,17 @@ export const api = {
   put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body),
   delete: <T>(path: string) => request<T>('DELETE', path),
 
+  parseFile: async (file: File): Promise<{ text: string; fileName: string }> => {
+    const form = new FormData()
+    form.append('file', file)
+    const res = await fetch(`${BASE}/api/files/parse`, { method: 'POST', body: form })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({})) as { error?: string }
+      throw new Error(data.error || `文件解析失败 (${res.status})`)
+    }
+    return res.json()
+  },
+
   healthCheck: async (): Promise<boolean> => {
     try {
       const res = await fetch(`${BASE}/api/health/llm`, {

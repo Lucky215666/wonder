@@ -7,6 +7,7 @@ import { analysisRoutes } from './routes/analysis'
 import { knowledgeRoutes } from './routes/knowledge'
 import { historyRoutes } from './routes/history'
 import { configRoutes } from './routes/config'
+import { filesRoutes } from './routes/files'
 import path from 'path'
 import fs from 'fs'
 
@@ -21,6 +22,7 @@ app.route('/api/analysis', analysisRoutes(storage, llmService))
 app.route('/api/knowledge', knowledgeRoutes(storage, llmService))
 app.route('/api/history', historyRoutes(storage))
 app.route('/api/config', configRoutes(storage))
+app.route('/api/files', filesRoutes())
 
 app.get('/api/health', (c) => c.json({ status: 'ok' }))
 
