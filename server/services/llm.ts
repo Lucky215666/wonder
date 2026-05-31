@@ -12,24 +12,20 @@ export class LLMService {
     this.storage = storage
   }
 
-  private getApiKey(): string {
-    const key = this.storage.getConfig('llm_api_key')
-    if (!key) throw new Error('LLM API key not configured')
-    return key
-  }
-
-  private getBaseUrl(): string {
-    return this.storage.getConfig('llm_base_url') || 'https://api.anthropic.com'
-  }
-
-  private getModel(): string {
-    return this.storage.getConfig('llm_model') || 'claude-sonnet-4-20250514'
+  private getAppConfig(): { apiKey: string; baseUrl: string; model: string } {
+    const raw = this.storage.getConfig('appConfig')
+    if (!raw) throw new Error('App config not found, please configure in Settings')
+    const cfg = JSON.parse(raw)
+    if (!cfg.apiKey) throw new Error('LLM API key not configured')
+    return {
+      apiKey: cfg.apiKey,
+      baseUrl: cfg.baseUrl || 'https://api.anthropic.com',
+      model: cfg.model || 'claude-sonnet-4-20250514',
+    }
   }
 
   async call(messages: LLMMessage[], systemPrompt?: string): Promise<string> {
-    const apiKey = this.getApiKey()
-    const baseUrl = this.getBaseUrl()
-    const model = this.getModel()
+    const { apiKey, baseUrl, model } = this.getAppConfig()
 
     // Build Anthropic Messages API request
     const body: Record<string, unknown> = {
@@ -68,9 +64,7 @@ export class LLMService {
 
   async healthCheck(): Promise<boolean> {
     try {
-      const apiKey = this.getApiKey()
-      const baseUrl = this.getBaseUrl()
-      const model = this.getModel()
+      const { apiKey, baseUrl, model } = this.getAppConfig()
       const resp = await fetch(`${baseUrl}/v1/messages`, {
         method: 'POST',
         headers: {
@@ -91,9 +85,7 @@ export class LLMService {
   }
 
   async *callStream(messages: LLMMessage[], systemPrompt?: string): AsyncGenerator<string> {
-    const apiKey = this.getApiKey()
-    const baseUrl = this.getBaseUrl()
-    const model = this.getModel()
+    const { apiKey, baseUrl, model } = this.getAppConfig()
 
     const body: Record<string, unknown> = {
       model,
