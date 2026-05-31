@@ -11,7 +11,6 @@ from backend.core.chunker import chunk_text, estimate_tokens
 from backend.core.config import ConfigManager
 from backend.core.history import HistoryManager
 from backend.core.llm_client import LLMCallError
-from openai import OpenAI
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 
@@ -19,19 +18,10 @@ config_manager = ConfigManager("data/config.json")
 history_manager = HistoryManager("data/outputs")
 
 
-def get_client():
+def get_model_params():
     config = config_manager.load()
     model_config = config["model"]
-
-    if model_config["provider"] == "Claude / Anthropic":
-        return None, "anthropic", model_config["api_key"], model_config["base_url"]
-
-    client = OpenAI(
-        api_key=model_config["api_key"],
-        base_url=model_config["base_url"],
-        timeout=60.0,
-    )
-    return client, "openai", "", ""
+    return model_config["model_name"], model_config["api_key"], model_config["base_url"]
 
 
 @router.post("/single")
@@ -52,32 +42,31 @@ async def analyze_single(
     text_chunks = chunk_text(document_text, max_chars=max_chars, overlap=overlap)
     token_estimate = estimate_tokens(document_text)
 
-    # Get LLM client
-    client, api_type, api_key, base_url = get_client()
+    # Get model params
+    model_name, api_key, base_url = get_model_params()
     config = config_manager.load()
-    model_name = config["model"]["model_name"]
     research_context = config["research"]["background"]
     writing_style = config["research"]["writing_style"]
 
     try:
         # Run agents
-        lit_agent = LiteratureParserAgent(client, model_name, api_type, api_key, base_url)
+        lit_agent = LiteratureParserAgent(model_name, api_key, base_url)
         reading_card = lit_agent.run(text_chunks=text_chunks)
 
-        rel_agent = ProjectRelationAgent(client, model_name, api_type, api_key, base_url)
+        rel_agent = ProjectRelationAgent(model_name, api_key, base_url)
         relation_analysis = rel_agent.run(
             reading_card=reading_card,
             user_research_context=research_context,
         )
 
-        write_agent = WritingAgent(client, model_name, api_type, api_key, base_url)
+        write_agent = WritingAgent(model_name, api_key, base_url)
         writing_materials = write_agent.run(
             reading_card=reading_card,
             relation_analysis=relation_analysis,
             writing_style=writing_style,
         )
 
-        todo_agent = TodoAgent(client, model_name, api_type, api_key, base_url)
+        todo_agent = TodoAgent(model_name, api_key, base_url)
         todo_list = todo_agent.run(
             reading_card=reading_card,
             relation_analysis=relation_analysis,

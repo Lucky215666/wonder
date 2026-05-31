@@ -51,24 +51,31 @@ export class StorageService {
   }
 
   upsertDocument(doc: {
-    id: string; fileName: string; filePath?: string; fileType?: string;
+    id: string; fileName: string; filePath?: string | null; fileType?: string;
     summary?: string; readingCard?: string; relationAnalysis?: string;
     writingMaterials?: string; todoList?: string; tags?: string; matchScore?: number
   }) {
     this.db.prepare(`
       INSERT INTO documents (id, file_name, file_path, file_type, summary, reading_card, relation_analysis, writing_materials, todo_list, tags, match_score)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (@id, @fileName, @filePath, @fileType, @summary, @readingCard, @relationAnalysis, @writingMaterials, @todoList, @tags, @matchScore)
       ON CONFLICT(id) DO UPDATE SET
         file_name=excluded.file_name, file_path=excluded.file_path, file_type=excluded.file_type,
         summary=excluded.summary, reading_card=excluded.reading_card, relation_analysis=excluded.relation_analysis,
         writing_materials=excluded.writing_materials, todo_list=excluded.todo_list, tags=excluded.tags,
         match_score=excluded.match_score
-    `).run(
-      doc.id, doc.fileName, doc.filePath ?? null, doc.fileType ?? null,
-      doc.summary ?? null, doc.readingCard ?? null, doc.relationAnalysis ?? null,
-      doc.writingMaterials ?? null, doc.todoList ?? null, doc.tags ?? null,
-      doc.matchScore ?? null
-    )
+    `).run({
+      id: doc.id,
+      fileName: doc.fileName,
+      filePath: doc.filePath ?? null,
+      fileType: doc.fileType ?? null,
+      summary: doc.summary ?? null,
+      readingCard: doc.readingCard ?? null,
+      relationAnalysis: doc.relationAnalysis ?? null,
+      writingMaterials: doc.writingMaterials ?? null,
+      todoList: doc.todoList ?? null,
+      tags: doc.tags ?? null,
+      matchScore: doc.matchScore ?? null,
+    })
   }
 
   getDocument(id: string): DocumentRow | null {

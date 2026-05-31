@@ -19,11 +19,11 @@ export class LLMService {
   }
 
   private getBaseUrl(): string {
-    return this.storage.getConfig('llm_base_url') || 'https://api.openai.com/v1'
+    return this.storage.getConfig('llm_base_url') || 'https://api.anthropic.com'
   }
 
   private getModel(): string {
-    return this.storage.getConfig('llm_model') || 'gpt-4o-mini'
+    return this.storage.getConfig('llm_model') || 'claude-sonnet-4-20250514'
   }
 
   async call(messages: LLMMessage[], systemPrompt?: string): Promise<string> {
@@ -31,25 +31,39 @@ export class LLMService {
     const baseUrl = this.getBaseUrl()
     const model = this.getModel()
 
-    const fullMessages: LLMMessage[] = []
-    if (systemPrompt) fullMessages.push({ role: 'system', content: systemPrompt })
-    fullMessages.push(...messages)
+    // Build Anthropic Messages API request
+    const body: Record<string, unknown> = {
+      model,
+      max_tokens: 4096,
+      messages: messages
+        .filter(m => m.role !== 'system')
+        .map(m => ({ role: m.role, content: m.content })),
+    }
+    if (systemPrompt) {
+      body.system = systemPrompt
+    }
 
-    const resp = await fetch(`${baseUrl}/chat/completions`, {
+    const resp = await fetch(`${baseUrl}/v1/messages`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
       },
-      body: JSON.stringify({ model, messages: fullMessages }),
+      body: JSON.stringify(body),
     })
 
     if (!resp.ok) {
       throw new Error(`LLM API error: ${resp.status} ${await resp.text()}`)
     }
 
-    const data = await resp.json() as { choices: { message: { content: string } }[] }
-    return data.choices[0]?.message?.content ?? ''
+    const data = await resp.json() as {
+      content: { type: string; text?: string }[]
+    }
+    return data.content
+      .filter(c => c.type === 'text')
+      .map(c => c.text ?? '')
+      .join('')
   }
 
   async *callStream(messages: LLMMessage[], systemPrompt?: string): AsyncGenerator<string> {
@@ -57,17 +71,26 @@ export class LLMService {
     const baseUrl = this.getBaseUrl()
     const model = this.getModel()
 
-    const fullMessages: LLMMessage[] = []
-    if (systemPrompt) fullMessages.push({ role: 'system', content: systemPrompt })
-    fullMessages.push(...messages)
+    const body: Record<string, unknown> = {
+      model,
+      max_tokens: 4096,
+      messages: messages
+        .filter(m => m.role !== 'system')
+        .map(m => ({ role: m.role, content: m.content })),
+      stream: true,
+    }
+    if (systemPrompt) {
+      body.system = systemPrompt
+    }
 
-    const resp = await fetch(`${baseUrl}/chat/completions`, {
+    const resp = await fetch(`${baseUrl}/v1/messages`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
       },
-      body: JSON.stringify({ model, messages: fullMessages, stream: true }),
+      body: JSON.stringify(body),
     })
 
     if (!resp.ok) {
@@ -90,11 +113,14 @@ export class LLMService {
         const trimmed = line.trim()
         if (!trimmed || !trimmed.startsWith('data: ')) continue
         const data = trimmed.slice(6)
-        if (data === '[DONE]') return
         try {
-          const parsed = JSON.parse(data) as { choices: { delta: { content?: string } }[] }
-          const content = parsed.choices[0]?.delta?.content
-          if (content) yield content
+          const parsed = JSON.parse(data) as {
+            type: string
+            delta?: { type: string; text?: string }
+          }
+          if (parsed.type === 'content_block_delta' && parsed.delta?.type === 'text_delta') {
+            yield parsed.delta.text ?? ''
+          }
         } catch {
           // skip malformed JSON lines
         }

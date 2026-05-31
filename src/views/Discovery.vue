@@ -112,10 +112,45 @@ function copyAbstract() {
 </script>
 
 <style scoped>
+.page-content {
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.page-header {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.page-header h2 {
+  font-family: var(--font-serif);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--ink-dense);
+  margin-bottom: 4px;
+}
+
+.page-header p {
+  font-size: 13px;
+  color: var(--ink-caption);
+}
+
 .search-bar {
   margin-bottom: var(--space-md);
   animation: wonder-fade-up 0.2s var(--ease-out) both;
   animation-delay: 0.05s;
+}
+
+.search-bar :deep(.el-input-group__append) {
+  border-radius: 0;
+  overflow: hidden;
+  padding: 0;
+}
+
+.search-bar :deep(.el-input-group__append .el-button) {
+  border-radius: 0;
+  margin: 0;
+  padding: 0 20px;
 }
 
 .mb-4 {

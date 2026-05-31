@@ -56,9 +56,9 @@ class ConfigModel(BaseModel):
 # 知识库相关模型
 class EmbeddingConfig(BaseModel):
     model_config = {"protected_namespaces": ()}
-    provider: str = "OpenAI"
+    provider: str = "Anthropic"
     api_key: str = ""
-    base_url: str = "https://api.openai.com/v1"
+    base_url: str = "https://api.anthropic.com"
     model_name: str = "text-embedding-3-small"
     dimensions: int = 1536
 

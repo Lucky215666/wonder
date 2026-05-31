@@ -5,6 +5,12 @@ dist-server/
 release/
 data/
 tmp-data/
+test_data/
 *.db
 .env
 .env.*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo

@@ -6,10 +6,10 @@ from typing import Any, Dict
 
 DEFAULT_CONFIG = {
     "model": {
-        "provider": "MiniMax",
+        "provider": "Anthropic",
         "api_key": "",
-        "base_url": "https://api.minimaxi.com/v1",
-        "model_name": "MiniMax-M2.7",
+        "base_url": "https://api.anthropic.com",
+        "model_name": "claude-sonnet-4-20250514",
     },
     "embedding": {
         "provider": "OpenAI",

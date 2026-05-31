@@ -3,9 +3,6 @@ import json
 import re
 import urllib.error
 import urllib.request
-from typing import Any, Dict, Optional
-
-from openai import OpenAI
 
 
 class LLMCallError(RuntimeError):
@@ -75,41 +72,24 @@ def call_anthropic_llm(
 
 
 def call_llm(
-    client: Any,
     model: str,
     system_prompt: str,
     user_prompt: str,
     temperature: float = 0.2,
     max_tokens: int = 3000,
-    api_type: str = "openai",
     api_key: str = "",
     base_url: str = "",
 ) -> str:
     try:
-        if api_type == "anthropic":
-            return call_anthropic_llm(
-                api_key=api_key,
-                base_url=base_url,
-                model=model,
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-
-        response = client.chat.completions.create(
+        return call_anthropic_llm(
+            api_key=api_key,
+            base_url=base_url,
             model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
             temperature=temperature,
             max_tokens=max_tokens,
         )
-        content = response.choices[0].message.content
-        if not content or not content.strip():
-            raise LLMCallError("Model returned empty response.")
-        return content.strip()
     except LLMCallError:
         raise
     except Exception as e:

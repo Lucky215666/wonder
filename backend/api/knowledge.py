@@ -20,7 +20,6 @@ from backend.models.schemas import (
     SearchRequest, SearchResponse,
     DocumentListResponse, DocumentDetailResponse
 )
-from openai import OpenAI
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 
@@ -57,22 +56,8 @@ def get_orchestrator():
     storage, embedding = get_storage_and_embedding()
     retriever = RAGRetriever(storage, embedding)
 
-    # Create LLM client (same pattern as analysis.py)
-    provider = model_config.get("provider", "MiniMax")
-    api_type = "anthropic" if provider == "Anthropic" else "openai"
-
-    if api_type == "openai":
-        client = OpenAI(
-            api_key=model_config.get("api_key", ""),
-            base_url=model_config.get("base_url", "")
-        )
-    else:
-        client = None  # Anthropic uses direct HTTP
-
     client_params = {
-        "client": client,
-        "model": model_config.get("model_name", "MiniMax-M2.7"),
-        "api_type": api_type,
+        "model": model_config.get("model_name", "claude-sonnet-4-20250514"),
         "api_key": model_config.get("api_key", ""),
         "base_url": model_config.get("base_url", "")
     }
