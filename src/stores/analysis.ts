@@ -3,8 +3,9 @@ import { api } from '../services/api'
 
 interface AnalysisStep {
   step: string
-  status: 'running' | 'done' | 'error'
+  status: 'running' | 'done' | 'error' | 'cancelled'
   label: string
+  progress?: number
   result?: unknown
 }
 
@@ -12,33 +13,91 @@ interface AnalysisState {
   steps: AnalysisStep[]
   running: boolean
   documentId: string | null
+  apiStatus: 'idle' | 'checking' | 'ok' | 'error'
+  apiError: string | null
+  abortController: AbortController | null
+
+  checkApi: () => Promise<boolean>
   analyze: (fileName: string, fileType: string, text: string) => Promise<void>
+  cancel: () => void
   reset: () => void
 }
 
-export const useAnalysisStore = create<AnalysisState>((set) => ({
+export const useAnalysisStore = create<AnalysisState>((set, get) => ({
   steps: [],
   running: false,
   documentId: null,
-  analyze: async (fileName, fileType, text) => {
-    set({ running: true, steps: [], documentId: null })
-    await api.stream('/api/analysis/single', { fileName, fileType, text }, (event, data) => {
-      if (event === 'step') {
-        const step = JSON.parse(data) as AnalysisStep
-        set((state) => {
-          const idx = state.steps.findIndex(s => s.step === step.step)
-          if (idx >= 0) {
-            const newSteps = [...state.steps]
-            newSteps[idx] = step
-            return { steps: newSteps }
-          }
-          return { steps: [...state.steps, step] }
-        })
-      } else if (event === 'complete') {
-        const { documentId } = JSON.parse(data)
-        set({ running: false, documentId })
-      }
-    })
+  apiStatus: 'idle',
+  apiError: null,
+  abortController: null,
+
+  checkApi: async () => {
+    set({ apiStatus: 'checking', apiError: null })
+    try {
+      const ok = await api.healthCheck()
+      set({ apiStatus: ok ? 'ok' : 'error', apiError: ok ? null : 'LLM API 不可达，请检查配置' })
+      return ok
+    } catch {
+      set({ apiStatus: 'error', apiError: '无法连接到服务器' })
+      return false
+    }
   },
-  reset: () => set({ steps: [], running: false, documentId: null }),
+
+  analyze: async (fileName, fileType, text) => {
+    const ac = new AbortController()
+    set({ running: true, steps: [], documentId: null, abortController: ac })
+
+    try {
+      await api.stream(
+        '/api/analysis/single',
+        { fileName, fileType, text },
+        (event, data) => {
+          if (event === 'step') {
+            const step = JSON.parse(data) as AnalysisStep
+            set((state) => {
+              const idx = state.steps.findIndex(s => s.step === step.step)
+              if (idx >= 0) {
+                const newSteps = [...state.steps]
+                newSteps[idx] = step
+                return { steps: newSteps }
+              }
+              return { steps: [...state.steps, step] }
+            })
+          } else if (event === 'progress') {
+            const { step: stepName, chunkCount } = JSON.parse(data) as { step: string; chunkCount: number }
+            set((state) => ({
+              steps: state.steps.map(s =>
+                s.step === stepName ? { ...s, progress: chunkCount } : s
+              ),
+            }))
+          } else if (event === 'complete') {
+            const { documentId } = JSON.parse(data)
+            set({ running: false, documentId, abortController: null })
+          } else if (event === 'cancel') {
+            set({ running: false, abortController: null })
+          }
+        },
+        ac.signal,
+      )
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        set((state) => ({
+          running: false,
+          abortController: null,
+          steps: state.steps.map(s =>
+            s.status === 'running' ? { ...s, status: 'cancelled' as const } : s
+          ),
+        }))
+      } else {
+        set({ running: false, abortController: null })
+        throw err
+      }
+    }
+  },
+
+  cancel: () => {
+    get().abortController?.abort()
+  },
+
+  reset: () => set({ steps: [], running: false, documentId: null, abortController: null }),
 }))

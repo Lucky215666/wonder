@@ -4,13 +4,15 @@ import { message } from 'antd'
 
 interface Props {
   onFileContent: (fileName: string, fileType: string, content: string) => void
+  disabled?: boolean
 }
 
-export default function FileUpload({ onFileContent }: Props) {
+export default function FileUpload({ onFileContent, disabled }: Props) {
   const [dragging, setDragging] = useState(false)
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
 
   const processFile = async (file: File) => {
+    if (disabled) return
     const ext = file.name.split('.').pop()?.toLowerCase()
     if (ext === 'txt' || ext === 'md') {
       const text = await file.text()
@@ -32,11 +34,13 @@ export default function FileUpload({ onFileContent }: Props) {
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
     setDragging(false)
+    if (disabled) return
     const file = e.dataTransfer.files[0]
     if (file) processFile(file)
   }
 
   const handleClick = () => {
+    if (disabled) return
     const input = document.createElement('input')
     input.type = 'file'
     input.accept = '.pdf,.docx,.txt,.md'
@@ -62,17 +66,19 @@ export default function FileUpload({ onFileContent }: Props) {
         <span style={{ flex: 1, color: 'var(--ink-dense)', fontWeight: 500, fontSize: 14 }}>
           {selectedFile}
         </span>
-        <CloseCircleOutlined
-          style={{ color: 'var(--ink-faint)', cursor: 'pointer', fontSize: 16 }}
-          onClick={() => setSelectedFile(null)}
-        />
+        {!disabled && (
+          <CloseCircleOutlined
+            style={{ color: 'var(--ink-faint)', cursor: 'pointer', fontSize: 16 }}
+            onClick={() => setSelectedFile(null)}
+          />
+        )}
       </div>
     )
   }
 
   return (
     <div
-      className={`wonder-upload-zone ${dragging ? 'dragging' : ''}`}
+      className={`wonder-upload-zone ${dragging ? 'dragging' : ''} ${disabled ? 'wonder-upload-zone--disabled' : ''}`}
       onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
       onDragLeave={() => setDragging(false)}
       onDrop={handleDrop}

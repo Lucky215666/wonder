@@ -66,6 +66,30 @@ export class LLMService {
       .join('')
   }
 
+  async healthCheck(): Promise<boolean> {
+    try {
+      const apiKey = this.getApiKey()
+      const baseUrl = this.getBaseUrl()
+      const model = this.getModel()
+      const resp = await fetch(`${baseUrl}/v1/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 1,
+          messages: [{ role: 'user', content: 'hi' }],
+        }),
+      })
+      return resp.ok
+    } catch {
+      return false
+    }
+  }
+
   async *callStream(messages: LLMMessage[], systemPrompt?: string): AsyncGenerator<string> {
     const apiKey = this.getApiKey()
     const baseUrl = this.getBaseUrl()

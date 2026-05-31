@@ -19,15 +19,28 @@ export const api = {
   put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body),
   delete: <T>(path: string) => request<T>('DELETE', path),
 
+  healthCheck: async (): Promise<boolean> => {
+    try {
+      const res = await fetch(`${BASE}/api/health/llm`, {
+        signal: AbortSignal.timeout(5000),
+      })
+      return res.ok
+    } catch {
+      return false
+    }
+  },
+
   stream: async (
     path: string,
     body: unknown,
     onEvent: (event: string, data: string) => void,
+    signal?: AbortSignal,
   ) => {
     const res = await fetch(`${BASE}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      signal,
     })
     if (!res.ok || !res.body) {
       const text = await res.text().catch(() => '')

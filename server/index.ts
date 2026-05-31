@@ -24,6 +24,13 @@ app.route('/api/config', configRoutes(storage))
 
 app.get('/api/health', (c) => c.json({ status: 'ok' }))
 
+app.get('/api/health/llm', async (c) => {
+  const ok = await llmService.healthCheck()
+  return ok
+    ? c.json({ status: 'ok' })
+    : c.json({ status: 'error', message: 'LLM API 不可达' }, 502)
+})
+
 // Serve frontend static files from dist/renderer
 const rendererDir = path.resolve(__dirname, '../dist/renderer')
 

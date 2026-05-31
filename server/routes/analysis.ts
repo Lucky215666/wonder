@@ -77,30 +77,62 @@ ${text}`,
       ]
 
       const results: Record<string, unknown> = {}
+      let cancelled = false
+      stream.onAbort(() => { cancelled = true })
 
       for (const step of steps) {
+        if (cancelled) break
+
         await stream.writeSSE({
           event: 'step',
-          data: JSON.stringify({ step: step.name, status: 'running', label: step.label }),
+          data: JSON.stringify({ step: step.name, status: 'running', label: step.label, progress: 0 }),
         })
 
+        let fullResponse = ''
+        let chunkCount = 0
+
         try {
-          const response = await llm.call([{ role: 'user', content: step.prompt }])
-          // Try to parse JSON from response
-          const jsonMatch = response.match(/\{[\s\S]*\}/)
-          if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0])
-            Object.assign(results, parsed)
+          const generator = llm.callStream([{ role: 'user', content: step.prompt }])
+          for await (const token of generator) {
+            if (cancelled) {
+              await generator.return(undefined)
+              break
+            }
+            fullResponse += token
+            chunkCount++
+            if (chunkCount % 20 === 0) {
+              await stream.writeSSE({
+                event: 'progress',
+                data: JSON.stringify({ step: step.name, chunkCount }),
+              })
+            }
+          }
+
+          if (!cancelled && fullResponse) {
+            const jsonMatch = fullResponse.match(/\{[\s\S]*\}/)
+            if (jsonMatch) {
+              const parsed = JSON.parse(jsonMatch[0])
+              Object.assign(results, parsed)
+            }
           }
         } catch (err) {
-          // Continue even if LLM call fails
           console.error(`Step ${step.name} failed:`, err)
         }
 
+        if (cancelled) break
+
         await stream.writeSSE({
           event: 'step',
-          data: JSON.stringify({ step: step.name, status: 'done', label: step.label }),
+          data: JSON.stringify({ step: step.name, status: 'done', label: step.label, progress: chunkCount }),
         })
+      }
+
+      if (cancelled) {
+        await stream.writeSSE({
+          event: 'cancel',
+          data: JSON.stringify({ message: '分析已取消' }),
+        })
+        return
       }
 
       // Save document to database - ensure all values are SQLite-compatible types
