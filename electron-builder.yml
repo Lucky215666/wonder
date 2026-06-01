@@ -1,5 +1,6 @@
 appId: com.wonder.app
 productName: Wonder
+copyright: "Copyright © 2026 Bruce Zhao"
 icon: public/icon.ico
 directories:
   output: release
@@ -14,10 +15,13 @@ asarUnpack:
   - node_modules/better-sqlite3/**
   - dist/renderer/**
 npmRebuild: false
+afterPack: scripts/after-pack.js
 win:
   target: dir
   signAndEditExecutable: false
   forceCodeSigning: false
+  legalTrademarks: "MIT License"
+  artifactName: "${productName}-${version}-Setup.${ext}"
 mac:
   target: dmg
 linux:
