@@ -16,6 +16,9 @@ __pycache__/
 *.pyo
 .pytest_cache/
 
+# Docs (local plans/specs)
+docs/superpowers/plans/
+
 # IDE
 .vscode/
 .idea/
