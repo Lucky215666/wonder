@@ -6,6 +6,7 @@ interface Step {
   status: 'running' | 'done' | 'error' | 'cancelled'
   label: string
   progress?: number
+  progressTotal?: number
 }
 
 interface Props {
@@ -32,7 +33,7 @@ export default function StepProgress({ steps, running, onCancel }: Props) {
               </span>
               {step.status === 'running' && step.progress !== undefined && step.progress > 0 && (
                 <span className="wonder-step-progress-text">
-                  已处理 {step.progress} 个 token
+                  已处理 {step.progress}{step.progressTotal ? `/${step.progressTotal}` : ''} 个 chunk
                 </span>
               )}
             </div>

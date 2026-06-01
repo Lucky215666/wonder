@@ -4,7 +4,7 @@ import { useConfigStore } from '../stores/config'
 import { useUIStore } from '../stores/ui'
 
 interface ApiGuardProps {
-  require: 'analysis' | 'embedding'
+  require: 'analysis' | 'embedding' | 'both'
   children: React.ReactNode
 }
 
@@ -16,21 +16,24 @@ export default function ApiGuard({ require, children }: ApiGuardProps) {
 
   const isConfigured = (() => {
     if (!config) return false
-    if (require === 'analysis') {
-      return !!(config.provider && config.apiKey && config.model)
-    }
-    // embedding: 需要 embeddingModel，以及 apiKey（优先 embedding 自己的，否则复用分析的）
-    return !!(config.embeddingModel && (config.embeddingApiKey || config.apiKey))
+    const hasChat = !!(config.chat.provider && config.chat.apiKey && config.chat.model)
+    const hasEmbedding = !!(config.embedding.model && (config.embedding.apiKey || config.chat.apiKey))
+    if (require === 'analysis') return hasChat
+    if (require === 'embedding') return hasEmbedding
+    return hasChat && hasEmbedding
   })()
 
   if (isConfigured) return <>{children}</>
 
   const isAnalysis = require === 'analysis'
+  const isBoth = require === 'both'
   const icon = isAnalysis ? <ApiOutlined /> : <ExperimentOutlined />
-  const title = isAnalysis ? '尚未配置分析模型' : '尚未配置 Embedding 模型'
-  const desc = isAnalysis
-    ? '文档分析、批量分析、追溯问答等功能需要分析模型支持'
-    : '知识库的向量检索功能需要 Embedding 模型支持'
+  const title = isBoth ? '尚未完成配置' : isAnalysis ? '尚未配置分析模型' : '尚未配置 Embedding 模型'
+  const desc = isBoth
+    ? '追溯问答功能需要同时配置分析模型和 Embedding 模型'
+    : isAnalysis
+      ? '文档分析、批量分析等功能需要分析模型支持'
+      : '知识库的向量检索功能需要 Embedding 模型支持'
 
   return (
     <div className="wonder-page" style={{
@@ -69,6 +72,16 @@ export default function ApiGuard({ require, children }: ApiGuardProps) {
         >
           去配置
         </Button>
+        {isBoth && (
+          <Button
+            style={{ marginLeft: 8 }}
+            icon={<SettingOutlined />}
+            size="large"
+            onClick={() => openSettings('analysis')}
+          >
+            配置分析模型
+          </Button>
+        )}
       </div>
     </div>
   )

@@ -1,95 +1,78 @@
-import { useState, useMemo } from 'react'
-import { Card, Typography, Input, Button, Tag, Space, Empty, message, Select, InputNumber, Divider } from 'antd'
+import { useState, useMemo, useEffect } from 'react'
+import { Card, Typography, Input, Button, Tag, Space, Empty, message, Select, Divider } from 'antd'
 import { SearchOutlined, LinkOutlined, BookOutlined, CalendarOutlined, GlobalOutlined, SaveOutlined, StopOutlined, SendOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
-import { searchPapers } from '../lib/discovery/semantic-scholar'
 import { calculateDiscoveryPriorityScore } from '../lib/discovery/ranking'
 import { extractKeywords, generateSuggestedQueries } from '../lib/discovery/query-generator'
 import { useDiscoveryStore } from '../stores/discovery'
+import { useKnowledgeStore } from '../stores/knowledge'
 import type { S2Paper } from '../lib/discovery/types'
 import type { DiscoveryContext, DiscoveryCandidate } from '../types/discovery'
 
 export default function Discovery() {
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
-  const [results, setResults] = useState<S2Paper[]>([])
   const [selected, setSelected] = useState<S2Paper | null>(null)
-  const [loading, setLoading] = useState(false)
 
-  // Discovery context state
+  // Context state
   const [contextMode, setContextMode] = useState<'manual' | 'knowledge_base'>('manual')
   const [manualTopic, setManualTopic] = useState('')
   const [manualKeywords, setManualKeywords] = useState('')
-  const [kbReadme, setKbReadme] = useState('')
+  const [selectedKBId, setSelectedKBId] = useState<string | null>(null)
 
   const {
-    discoveryContext,
-    setDiscoveryContext,
-    addToCandidateQueue,
-    isInQueue,
-    getCandidate,
-    updateCandidateState,
+    discoveryContext, setDiscoveryContext,
+    searchResults, searchLoading, hasSearched, searchPapers,
+    candidateQueue, loadCandidates, saveCandidate,
+    updateCandidateState, isInQueue, getCandidate,
   } = useDiscoveryStore()
 
-  // Generate suggested queries from context
+  const { knowledgeBases, loadKnowledgeBases } = useKnowledgeStore()
+
+  useEffect(() => { loadKnowledgeBases() }, [loadKnowledgeBases])
+  useEffect(() => { loadCandidates() }, [loadCandidates])
+
   const suggestedQueries = useMemo(() => {
     if (!discoveryContext) return []
     return generateSuggestedQueries(discoveryContext)
   }, [discoveryContext])
 
-  // Rank results based on context keywords
   const rankedResults = useMemo(() => {
     if (!discoveryContext || discoveryContext.keywords.length === 0) {
-      return results.map(paper => ({
-        paper,
-        score: 0,
-        reason: '无上下文排名',
-      }))
+      return searchResults.map(paper => ({ paper, score: 0, reason: '无上下文排名' }))
     }
-
-    return results
+    return searchResults
       .map(paper => {
         const ranking = calculateDiscoveryPriorityScore(paper, discoveryContext.keywords)
-        return {
-          paper,
-          score: ranking.score,
-          reason: ranking.reason,
-        }
+        return { paper, score: ranking.score, reason: ranking.reason }
       })
       .sort((a, b) => b.score - a.score)
-  }, [results, discoveryContext])
+  }, [searchResults, discoveryContext])
 
   const handleSetContext = () => {
     if (contextMode === 'manual') {
-      if (!manualTopic.trim()) {
-        message.warning('请输入研究主题')
-        return
-      }
-      const keywords = manualKeywords
-        .split(/[,，、\s]+/)
-        .map(k => k.trim())
-        .filter(k => k.length > 0)
-      const context: DiscoveryContext = {
+      if (!manualTopic.trim()) { message.warning('请输入研究主题'); return }
+      const keywords = manualKeywords.split(/[,，、\s]+/).map(k => k.trim()).filter(Boolean)
+      setDiscoveryContext({
         mode: 'manual',
         name: manualTopic.trim(),
         keywords: keywords.length > 0 ? keywords : [manualTopic.trim()],
-      }
-      setDiscoveryContext(context)
+      })
       message.success('已设置发现上下文')
     } else {
-      if (!kbReadme.trim()) {
-        message.warning('请输入知识库README内容')
-        return
-      }
-      const keywords = extractKeywords(kbReadme)
-      const context: DiscoveryContext = {
+      if (!selectedKBId) { message.warning('请选择知识库'); return }
+      const kb = knowledgeBases.find(k => k.id === selectedKBId)
+      if (!kb) return
+      const keywords = extractKeywords(kb.readme || '')
+      setDiscoveryContext({
         mode: 'knowledge_base',
-        name: '知识库',
-        readme: kbReadme,
+        knowledgeBaseId: selectedKBId,
+        name: kb.name,
+        readme: kb.readme,
         keywords,
-      }
-      setDiscoveryContext(context)
-      message.success(`已从README提取 ${keywords.length} 个关键词`)
+      })
+      loadCandidates(selectedKBId)
+      message.success(`已从「${kb.name}」提取 ${keywords.length} 个关键词`)
     }
   }
 
@@ -97,26 +80,16 @@ export default function Discovery() {
     const q = searchQuery || query
     if (!q.trim()) return
     setQuery(q)
-    setLoading(true)
-    try {
-      const { papers } = await searchPapers(q, 20)
-      setResults(papers)
-      setSelected(papers[0] ?? null)
-    } catch (e) {
-      message.error(`搜索失败: ${(e as Error).message}`)
-    } finally {
-      setLoading(false)
-    }
+    await searchPapers(q, 20)
+    const latest = useDiscoveryStore.getState().searchResults
+    if (latest.length > 0) setSelected(latest[0])
+    else setSelected(null)
   }
 
   const handleSaveCandidate = (paper: S2Paper) => {
-    if (!discoveryContext) {
-      message.warning('请先设置发现上下文')
-      return
-    }
-
+    if (!discoveryContext) { message.warning('请先设置发现上下文'); return }
     const ranking = calculateDiscoveryPriorityScore(paper, discoveryContext.keywords)
-    const candidate: DiscoveryCandidate = {
+    saveCandidate({
       paperId: paper.paperId,
       title: paper.title,
       abstract: paper.abstract,
@@ -130,19 +103,15 @@ export default function Discovery() {
       discoveryPriorityScore: ranking.score,
       discoveryReason: ranking.reason,
       state: 'saved',
-    }
-    addToCandidateQueue(candidate)
+      knowledgeBaseId: discoveryContext.knowledgeBaseId ?? null,
+    })
     message.success('已保存到候选队列')
   }
 
   const handleIgnoreCandidate = (paper: S2Paper) => {
-    if (!discoveryContext) {
-      message.warning('请先设置发现上下文')
-      return
-    }
-
+    if (!discoveryContext) { message.warning('请先设置发现上下文'); return }
     const ranking = calculateDiscoveryPriorityScore(paper, discoveryContext.keywords)
-    const candidate: DiscoveryCandidate = {
+    saveCandidate({
       paperId: paper.paperId,
       title: paper.title,
       abstract: paper.abstract,
@@ -156,63 +125,55 @@ export default function Discovery() {
       discoveryPriorityScore: ranking.score,
       discoveryReason: ranking.reason,
       state: 'ignored',
-    }
-    addToCandidateQueue(candidate)
+      knowledgeBaseId: discoveryContext.knowledgeBaseId ?? null,
+    })
     message.info('已忽略该论文')
   }
 
   const handlePrepareForAnalysis = (paper: S2Paper) => {
-    if (!discoveryContext) {
-      message.warning('请先设置发现上下文')
-      return
-    }
-
+    if (!discoveryContext) { message.warning('请先设置发现上下文'); return }
     const ranking = calculateDiscoveryPriorityScore(paper, discoveryContext.keywords)
-    const payload = {
-      source: 'discovery',
-      paperId: paper.paperId,
-      title: paper.title,
-      abstract: paper.abstract,
-      url: paper.url,
-      year: paper.year,
-      authors: paper.authors.map(a => a.name),
-      targetKnowledgeBaseId: discoveryContext.knowledgeBaseId,
-      discoveryPriorityScore: ranking.score,
-      discoveryReason: ranking.reason,
+    const candidate = getCandidate(paper.paperId)
+    const candidateId = candidate?.id
+    // Save as candidate first if not already in queue
+    if (!candidate) {
+      saveCandidate({
+        paperId: paper.paperId,
+        title: paper.title,
+        abstract: paper.abstract,
+        year: paper.year,
+        citationCount: paper.citationCount,
+        influentialCitationCount: paper.influentialCitationCount,
+        venue: paper.venue,
+        authors: paper.authors,
+        url: paper.url,
+        sourceQuery: query,
+        discoveryPriorityScore: ranking.score,
+        discoveryReason: ranking.reason,
+        state: 'sent_to_analysis',
+        knowledgeBaseId: discoveryContext.knowledgeBaseId ?? null,
+      })
+    } else if (candidateId) {
+      updateCandidateState(candidateId, 'sent_to_analysis')
     }
-
-    localStorage.setItem('wonder-discovery-handoff', JSON.stringify(payload))
-
-    const candidate: DiscoveryCandidate = {
-      paperId: paper.paperId,
-      title: paper.title,
-      abstract: paper.abstract,
-      year: paper.year,
-      citationCount: paper.citationCount,
-      influentialCitationCount: paper.influentialCitationCount,
-      venue: paper.venue,
-      authors: paper.authors,
-      url: paper.url,
-      sourceQuery: query,
-      discoveryPriorityScore: ranking.score,
-      discoveryReason: ranking.reason,
-      state: 'sent_to_analysis',
-    }
-    addToCandidateQueue(candidate)
+    // Navigate with URL params
+    const params = new URLSearchParams()
+    if (candidateId) params.set('candidateId', candidateId)
+    if (discoveryContext.knowledgeBaseId) params.set('kb', discoveryContext.knowledgeBaseId)
+    navigate(`/analysis?${params.toString()}`)
     message.success('已准备分析载荷，可前往分析页面')
   }
 
   const getCandidateStateTag = (paperId: string) => {
     const candidate = getCandidate(paperId)
     if (!candidate) return null
-
-    const stateMap = {
+    const stateMap: Record<string, { color: string; text: string }> = {
       new: { color: 'blue', text: '新' },
       saved: { color: 'green', text: '已保存' },
       ignored: { color: 'default', text: '已忽略' },
       sent_to_analysis: { color: 'purple', text: '已发送分析' },
     }
-    const state = stateMap[candidate.state]
+    const state = stateMap[candidate.state] ?? stateMap.new
     return <Tag color={state.color}>{state.text}</Tag>
   }
 
@@ -255,14 +216,15 @@ export default function Discovery() {
             </Space>
           ) : (
             <Space style={{ width: '100%' }}>
-              <Input.TextArea
-                placeholder="粘贴知识库README内容..."
-                value={kbReadme}
-                onChange={e => setKbReadme(e.target.value)}
-                rows={3}
-                style={{ width: 500 }}
+              <Select
+                placeholder="选择知识库"
+                value={selectedKBId}
+                onChange={setSelectedKBId}
+                style={{ width: 300 }}
+                options={knowledgeBases.map(kb => ({ value: kb.id, label: kb.name }))}
+                allowClear
               />
-              <Button type="primary" onClick={handleSetContext}>提取关键词</Button>
+              <Button type="primary" onClick={handleSetContext}>使用知识库上下文</Button>
             </Space>
           )}
 
@@ -285,18 +247,14 @@ export default function Discovery() {
           onChange={e => setQuery(e.target.value)}
           onSearch={() => handleSearch()}
           enterButton={<><SearchOutlined /> 搜索</>}
-          loading={loading}
+          loading={searchLoading}
           size="large"
         />
         {suggestedQueries.length > 0 && (
           <div style={{ marginTop: 8 }}>
             <Typography.Text type="secondary" style={{ fontSize: 12, marginRight: 8 }}>建议查询:</Typography.Text>
             {suggestedQueries.map((sq, idx) => (
-              <Tag
-                key={idx}
-                style={{ cursor: 'pointer', marginBottom: 4 }}
-                onClick={() => handleSearch(sq)}
-              >
+              <Tag key={idx} style={{ cursor: 'pointer', marginBottom: 4 }} onClick={() => handleSearch(sq)}>
                 {sq}
               </Tag>
             ))}
@@ -306,13 +264,9 @@ export default function Discovery() {
 
       <div className="wonder-discovery-layout">
         <div className="wonder-discovery-sidebar">
-          {rankedResults.length === 0 && !loading ? (
+          {rankedResults.length === 0 && !searchLoading ? (
             <Empty
-              description={
-                <span style={{ color: 'var(--ink-faint)', fontFamily: 'var(--font-serif)' }}>
-                  输入关键词开始搜索
-                </span>
-              }
+              description={<span style={{ color: 'var(--ink-faint)', fontFamily: 'var(--font-serif)' }}>{hasSearched ? '未找到相关论文，请尝试其他关键词' : '输入关键词开始搜索'}</span>}
               style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, minHeight: 300 }}
             />
           ) : (
@@ -340,9 +294,7 @@ export default function Discovery() {
                   </Space>
                 </div>
                 {discoveryContext && (
-                  <div style={{ fontSize: 11, color: 'var(--ink-caption)', marginTop: 4 }}>
-                    {reason}
-                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--ink-caption)', marginTop: 4 }}>{reason}</div>
                 )}
               </div>
             ))
@@ -372,15 +324,9 @@ export default function Discovery() {
               </div>
               {selected.abstract && (
                 <div style={{
-                  background: 'var(--bg)',
-                  border: '1px solid var(--border-light)',
-                  borderRadius: 'var(--radius-md)',
-                  padding: '16px 20px',
-                  marginBottom: 20,
-                  fontFamily: 'var(--font-serif)',
-                  fontSize: 14,
-                  lineHeight: 1.8,
-                  color: 'var(--ink-secondary)',
+                  background: 'var(--bg)', border: '1px solid var(--border-light)',
+                  borderRadius: 'var(--radius-md)', padding: '16px 20px', marginBottom: 20,
+                  fontFamily: 'var(--font-serif)', fontSize: 14, lineHeight: 1.8, color: 'var(--ink-secondary)',
                 }}>
                   {selected.abstract}
                 </div>
@@ -391,42 +337,24 @@ export default function Discovery() {
               <Space wrap>
                 {!isInQueue(selected.paperId) ? (
                   <>
-                    <Button
-                      type="primary"
-                      icon={<SaveOutlined />}
-                      onClick={() => handleSaveCandidate(selected)}
-                      disabled={!discoveryContext}
-                    >
+                    <Button type="primary" icon={<SaveOutlined />} onClick={() => handleSaveCandidate(selected)} disabled={!discoveryContext}>
                       保存候选
                     </Button>
-                    <Button
-                      icon={<StopOutlined />}
-                      onClick={() => handleIgnoreCandidate(selected)}
-                      disabled={!discoveryContext}
-                    >
+                    <Button icon={<StopOutlined />} onClick={() => handleIgnoreCandidate(selected)} disabled={!discoveryContext}>
                       忽略
                     </Button>
                   </>
                 ) : (
                   <Tag color="green" style={{ padding: '4px 8px' }}>已在候选队列中</Tag>
                 )}
-                <Button
-                  icon={<LinkOutlined />}
-                  onClick={() => navigate(`/citation?id=${selected.paperId}`)}
-                >
+                <Button icon={<LinkOutlined />} onClick={() => navigate(`/citation?id=${selected.paperId}`)}>
                   查看引用图谱
                 </Button>
-                <Button
-                  icon={<SendOutlined />}
-                  onClick={() => handlePrepareForAnalysis(selected)}
-                  disabled={!discoveryContext}
-                >
+                <Button icon={<SendOutlined />} onClick={() => handlePrepareForAnalysis(selected)} disabled={!discoveryContext}>
                   准备分析
                 </Button>
                 {selected.url && (
-                  <Button icon={<GlobalOutlined />} href={selected.url} target="_blank">
-                    原文链接
-                  </Button>
+                  <Button icon={<GlobalOutlined />} href={selected.url} target="_blank">原文链接</Button>
                 )}
               </Space>
             </Card>

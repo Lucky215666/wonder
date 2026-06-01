@@ -62,6 +62,22 @@ const providerPresets: ProviderPreset[] = [
     chatModels: ['MiniMax-M2.7'],
     embeddingModels: ['text-embedding-003'],
   },
+  {
+    id: 'xiaomi',
+    name: '小米 MiMo',
+    provider: 'openai_compatible',
+    baseUrl: 'https://token-plan-cn.xiaomimimo.com/anthropic',
+    chatModels: ['mimo-v2.5-pro'],
+    embeddingModels: [],
+  },
+  {
+    id: 'siliconflow',
+    name: '硅基流动',
+    provider: 'openai_compatible',
+    baseUrl: 'https://api.siliconflow.cn/v1',
+    chatModels: ['Qwen/Qwen2.5-7B-Instruct'],
+    embeddingModels: ['BAAI/bge-large-zh-v1.5', 'BAAI/bge-m3'],
+  },
 ]
 
 const tabs: { key: SettingsTab; icon: React.ReactNode; label: string }[] = [
@@ -89,16 +105,24 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
     chatBaseUrl: '',
     chatApiKey: '',
     chatModel: '',
+    chatApiFormat: 'openai' as 'anthropic' | 'openai',
     embeddingPreset: '',
     embeddingProvider: '' as EmbeddingProvider | '',
     embeddingBaseUrl: '',
     embeddingApiKey: '',
     embeddingModel: '',
+    embeddingApiFormat: 'openai' as 'anthropic' | 'openai',
     researchBackground: '',
     globalUserProfile: '',
     nickname: '',
     avatar: '',
   })
+
+  function detectApiFormat(provider: string, baseUrl: string): 'anthropic' | 'openai' {
+    if (provider === 'anthropic') return 'anthropic'
+    if (baseUrl.includes('/anthropic')) return 'anthropic'
+    return 'openai'
+  }
 
   useEffect(() => { loadConfig() }, [loadConfig])
 
@@ -120,11 +144,13 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
         chatBaseUrl: config.chat.baseUrl || '',
         chatApiKey: config.chat.apiKey || '',
         chatModel: config.chat.model || '',
+        chatApiFormat: detectApiFormat(config.chat.provider, config.chat.baseUrl),
         embeddingPreset: config.embedding.preset || '',
         embeddingProvider: config.embedding.provider || '',
         embeddingBaseUrl: config.embedding.baseUrl || '',
         embeddingApiKey: config.embedding.apiKey || '',
         embeddingModel: config.embedding.model || '',
+        embeddingApiFormat: detectApiFormat(config.embedding.provider, config.embedding.baseUrl),
         researchBackground: '',
         globalUserProfile: config.research.globalProfile || '',
         nickname: config.nickname || '',
@@ -162,6 +188,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
         chatProvider: preset.provider as ChatProvider,
         chatBaseUrl: preset.baseUrl,
         chatModel: preset.chatModels[0] || '',
+        chatApiFormat: detectApiFormat(preset.provider, preset.baseUrl),
       }))
     } else {
       setForm(f => ({
@@ -170,6 +197,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
         embeddingProvider: preset.provider as EmbeddingProvider,
         embeddingBaseUrl: preset.baseUrl,
         embeddingModel: preset.embeddingModels[0] || '',
+        embeddingApiFormat: detectApiFormat(preset.provider, preset.baseUrl),
       }))
     }
   }
@@ -182,32 +210,63 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
     }
   }
 
-  const handleSave = async () => {
-    const payload: NormalizedAppConfig = {
-      chat: {
-        provider: (form.chatProvider || 'openai_compatible') as ChatProvider,
-        preset: form.chatPreset || '',
-        apiKey: form.chatApiKey,
-        baseUrl: form.chatBaseUrl,
-        model: form.chatModel,
-        temperature: config?.chat.temperature ?? 0.2,
-        maxTokens: config?.chat.maxTokens ?? 4096,
-      },
-      embedding: {
-        provider: (form.embeddingProvider || 'openai_compatible') as EmbeddingProvider,
-        preset: form.embeddingPreset || '',
-        apiKey: form.embeddingApiKey,
-        baseUrl: form.embeddingBaseUrl,
-        model: form.embeddingModel,
-        dimensions: config?.embedding.dimensions ?? 1536,
-      },
-      knowledge: config?.knowledge ?? { enabled: true, autoIndex: true, contextTokenLimit: 8000 },
-      research: { globalProfile: form.globalUserProfile },
-      nickname: form.nickname || undefined,
-      avatar: form.avatar || undefined,
-    }
+  const handleLocalEmbedding = () => {
+    setForm(f => ({
+      ...f,
+      embeddingPreset: 'local',
+      embeddingProvider: 'local',
+      embeddingBaseUrl: '',
+      embeddingApiKey: '',
+      embeddingModel: 'BAAI/bge-small-zh-v1.5',
+    }))
+  }
+
+  const buildFullConfig = (): NormalizedAppConfig => ({
+    chat: {
+      provider: (form.chatApiFormat === 'anthropic' ? 'anthropic' : form.chatProvider || 'openai_compatible') as ChatProvider,
+      preset: form.chatPreset || '',
+      apiKey: form.chatApiKey,
+      baseUrl: form.chatBaseUrl,
+      model: form.chatModel,
+      temperature: config?.chat.temperature ?? 0.2,
+      maxTokens: config?.chat.maxTokens ?? 4096,
+    },
+    embedding: {
+      provider: (form.embeddingApiFormat === 'anthropic' ? 'anthropic' : form.embeddingProvider || 'openai_compatible') as EmbeddingProvider,
+      preset: form.embeddingPreset || '',
+      apiKey: form.embeddingApiKey,
+      baseUrl: form.embeddingBaseUrl,
+      model: form.embeddingModel,
+      dimensions: config?.embedding.dimensions ?? 1536,
+    },
+    knowledge: config?.knowledge ?? { enabled: true, autoIndex: true, contextTokenLimit: 8000 },
+    research: { globalProfile: form.globalUserProfile },
+    nickname: form.nickname || undefined,
+    avatar: form.avatar || undefined,
+  })
+
+  const handleSaveChat = async () => {
+    const payload = buildFullConfig()
     await saveConfig(payload)
-    message.success('设置已保存')
+    message.success('分析模型设置已保存')
+  }
+
+  const handleSaveEmbedding = async () => {
+    const payload = buildFullConfig()
+    await saveConfig(payload)
+    message.success('Embedding 模型设置已保存')
+  }
+
+  const handleSaveProfile = async () => {
+    const payload = buildFullConfig()
+    await saveConfig(payload)
+    message.success('个人资料已保存')
+  }
+
+  const handleSaveResearch = async () => {
+    const payload = buildFullConfig()
+    await saveConfig(payload)
+    message.success('研究背景已保存')
   }
 
   const renderProviderSection = (
@@ -218,12 +277,16 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
     baseUrl: string,
     apiKey: string,
     model: string,
+    onSave: () => void,
   ) => {
     const currentPreset = providerPresets.find(p => p.id === presetId)
     const isCustom = presetId === 'custom'
+    const isLocal = target === 'embedding' && form.embeddingProvider === 'local'
     const models = target === 'analysis'
       ? (currentPreset?.chatModels || [])
-      : (currentPreset?.embeddingModels || [])
+      : isLocal
+        ? ['BAAI/bge-small-zh-v1.5', 'BAAI/bge-large-zh-v1.5']
+        : (currentPreset?.embeddingModels || [])
 
     return (
       <div className="wonder-settings-field">
@@ -233,76 +296,153 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
 
         {/* 服务商选择 */}
         <div className="wonder-provider-grid" style={{ marginBottom: 12 }}>
-          {providerPresets.map(preset => (
-            <button
-              key={preset.id}
-              className={`wonder-provider-card ${presetId === preset.id ? 'wonder-provider-card--active' : ''}`}
-              onClick={() => handleProviderChange(preset.id, target)}
-            >
-              <span className="wonder-provider-name">{preset.name}</span>
-              {presetId === preset.id && (
-                <CheckOutlined className="wonder-provider-check" />
-              )}
-            </button>
-          ))}
-          <button
-            className={`wonder-provider-card ${isCustom ? 'wonder-provider-card--active' : ''}`}
-            onClick={() => handleCustomProvider(target)}
-          >
-            <span className="wonder-provider-name"><PlusOutlined /> 自定义</span>
-            {isCustom && (
-              <CheckOutlined className="wonder-provider-check" />
-            )}
-          </button>
+          {target === 'analysis' ? (
+            <>
+              {providerPresets.map(preset => (
+                <button
+                  key={preset.id}
+                  className={`wonder-provider-card ${presetId === preset.id ? 'wonder-provider-card--active' : ''}`}
+                  onClick={() => handleProviderChange(preset.id, target)}
+                >
+                  <span className="wonder-provider-name">{preset.name}</span>
+                  {presetId === preset.id && (
+                    <CheckOutlined className="wonder-provider-check" />
+                  )}
+                </button>
+              ))}
+              <button
+                className={`wonder-provider-card ${isCustom ? 'wonder-provider-card--active' : ''}`}
+                onClick={() => handleCustomProvider(target)}
+              >
+                <span className="wonder-provider-name"><PlusOutlined /> 自定义</span>
+                {isCustom && (
+                  <CheckOutlined className="wonder-provider-check" />
+                )}
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                className={`wonder-provider-card ${presetId === 'siliconflow' && !isLocal ? 'wonder-provider-card--active' : ''}`}
+                onClick={() => handleProviderChange('siliconflow', target)}
+              >
+                <span className="wonder-provider-name">硅基流动</span>
+                {presetId === 'siliconflow' && !isLocal && (
+                  <CheckOutlined className="wonder-provider-check" />
+                )}
+              </button>
+              <button
+                className={`wonder-provider-card ${isLocal ? 'wonder-provider-card--active' : ''}`}
+                onClick={handleLocalEmbedding}
+              >
+                <span className="wonder-provider-name">本地部署</span>
+                {isLocal && (
+                  <CheckOutlined className="wonder-provider-check" />
+                )}
+              </button>
+              <button
+                className={`wonder-provider-card ${isCustom ? 'wonder-provider-card--active' : ''}`}
+                onClick={() => handleCustomProvider(target)}
+              >
+                <span className="wonder-provider-name"><PlusOutlined /> 自定义</span>
+                {isCustom && (
+                  <CheckOutlined className="wonder-provider-check" />
+                )}
+              </button>
+            </>
+          )}
         </div>
 
+        {/* 本地部署说明 */}
+        {isLocal && (
+          <div style={{ marginBottom: 12, padding: '12px', background: 'var(--bg-secondary)', borderRadius: '8px' }}>
+            <Typography.Text style={{ display: 'block', color: 'var(--ink-caption)', fontSize: 13 }}>
+              本地部署使用 sentence-transformers 运行 BGE 模型，无需 API Key。
+              首次使用时会自动下载模型（约 93MB - 1.3GB）。
+            </Typography.Text>
+            <Typography.Text style={{ display: 'block', marginTop: 8, color: 'var(--ink-muted)', fontSize: 12 }}>
+              需要安装：pip install sentence-transformers
+            </Typography.Text>
+          </div>
+        )}
+
+        {/* API 格式选择 (仅非本地) */}
+        {(presetId || isCustom) && !isLocal && (
+          <div style={{ marginBottom: 12 }}>
+            <Typography.Text style={{ display: 'block', marginBottom: 4, color: 'var(--ink-caption)', fontSize: 12 }}>
+              API 格式
+            </Typography.Text>
+            <Select
+              style={{ width: '100%' }}
+              value={target === 'analysis' ? form.chatApiFormat : form.embeddingApiFormat}
+              onChange={value => {
+                if (target === 'analysis') {
+                  setForm(f => ({ ...f, chatApiFormat: value }))
+                } else {
+                  setForm(f => ({ ...f, embeddingApiFormat: value }))
+                }
+              }}
+              options={[
+                { label: 'Anthropic', value: 'anthropic' },
+                { label: 'OpenAI', value: 'openai' },
+              ]}
+            />
+          </div>
+        )}
+
         {/* 配置详情 */}
-        {(presetId || isCustom) && (
+        {(presetId || isCustom || isLocal) && (
           <>
-            <div style={{ marginBottom: 12 }}>
-              <Typography.Text style={{ display: 'block', marginBottom: 4, color: 'var(--ink-caption)', fontSize: 12 }}>
-                API Base URL
-              </Typography.Text>
-              <Input
-                placeholder="https://api.example.com/v1"
-                value={baseUrl}
-                onChange={e => {
-                  if (target === 'analysis') {
-                    setForm(f => ({ ...f, chatBaseUrl: e.target.value }))
-                  } else {
-                    setForm(f => ({ ...f, embeddingBaseUrl: e.target.value }))
-                  }
-                }}
-              />
-            </div>
+            {/* API Base URL (仅非本地) */}
+            {!isLocal && (
+              <div style={{ marginBottom: 12 }}>
+                <Typography.Text style={{ display: 'block', marginBottom: 4, color: 'var(--ink-caption)', fontSize: 12 }}>
+                  API Base URL
+                </Typography.Text>
+                <Input
+                  placeholder="https://api.example.com/v1"
+                  value={baseUrl}
+                  onChange={e => {
+                    if (target === 'analysis') {
+                      setForm(f => ({ ...f, chatBaseUrl: e.target.value }))
+                    } else {
+                      setForm(f => ({ ...f, embeddingBaseUrl: e.target.value }))
+                    }
+                  }}
+                />
+              </div>
+            )}
+
+            {/* API Key (仅非本地) */}
+            {!isLocal && (
+              <div style={{ marginBottom: 12 }}>
+                <Typography.Text style={{ display: 'block', marginBottom: 4, color: 'var(--ink-caption)', fontSize: 12 }}>
+                  <KeyOutlined /> API Key
+                  {target === 'embedding' && form.chatApiKey && (
+                    <span style={{ marginLeft: 8, color: 'var(--ink-muted)', fontSize: 11 }}>
+                      (留空则复用分析模型的 Key)
+                    </span>
+                  )}
+                </Typography.Text>
+                <Input.Password
+                  placeholder={`输入 API Key`}
+                  value={apiKey}
+                  onChange={e => {
+                    if (target === 'analysis') {
+                      setForm(f => ({ ...f, chatApiKey: e.target.value }))
+                    } else {
+                      setForm(f => ({ ...f, embeddingApiKey: e.target.value }))
+                    }
+                  }}
+                />
+              </div>
+            )}
 
             <div style={{ marginBottom: 12 }}>
-              <Typography.Text style={{ display: 'block', marginBottom: 4, color: 'var(--ink-caption)', fontSize: 12 }}>
-                <KeyOutlined /> API Key
-                {target === 'embedding' && form.chatApiKey && (
-                  <span style={{ marginLeft: 8, color: 'var(--ink-muted)', fontSize: 11 }}>
-                    (留空则复用分析模型的 Key)
-                  </span>
-                )}
-              </Typography.Text>
-              <Input.Password
-                placeholder={`输入 API Key`}
-                value={apiKey}
-                onChange={e => {
-                  if (target === 'analysis') {
-                    setForm(f => ({ ...f, chatApiKey: e.target.value }))
-                  } else {
-                    setForm(f => ({ ...f, embeddingApiKey: e.target.value }))
-                  }
-                }}
-              />
-            </div>
-
-            <div style={{ marginBottom: 8 }}>
               <Typography.Text style={{ display: 'block', marginBottom: 4, color: 'var(--ink-caption)', fontSize: 12 }}>
                 模型名称
               </Typography.Text>
-              {isCustom ? (
+              {isCustom && !isLocal ? (
                 <Input
                   placeholder="输入模型名称"
                   value={model}
@@ -331,6 +471,10 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                 />
               )}
             </div>
+
+            <Button type="primary" onClick={onSave}>
+              保存{target === 'analysis' ? '分析模型' : 'Embedding 模型'}设置
+            </Button>
           </>
         )}
       </div>
@@ -384,6 +528,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                   form.chatBaseUrl,
                   form.chatApiKey,
                   form.chatModel,
+                  handleSaveChat,
                 )}
               </div>
 
@@ -400,12 +545,9 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                   form.embeddingBaseUrl,
                   form.embeddingApiKey || '',
                   form.embeddingModel,
+                  handleSaveEmbedding,
                 )}
               </div>
-
-              <Button type="primary" onClick={handleSave} style={{ marginTop: 16 }}>
-                保存 API 设置
-              </Button>
             </div>
           )}
 
@@ -453,7 +595,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                 />
               </div>
 
-              <Button type="primary" onClick={handleSave} style={{ marginTop: 8 }}>
+              <Button type="primary" onClick={handleSaveResearch} style={{ marginTop: 8 }}>
                 保存研究背景
               </Button>
             </div>
@@ -534,7 +676,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                 />
               </div>
 
-              <Button type="primary" onClick={handleSave} style={{ marginTop: 8 }}>
+              <Button type="primary" onClick={handleSaveProfile} style={{ marginTop: 8 }}>
                 保存个人资料
               </Button>
             </div>

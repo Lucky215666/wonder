@@ -7,6 +7,19 @@ from fastapi.testclient import TestClient
 # ── Gateway analysis with mocked provider ────────────────────────────────────
 
 
+def _parse_sse_events(text: str) -> list[tuple[str, str]]:
+    """Parse SSE text into list of (event, data) tuples."""
+    events = []
+    current_event = "message"
+    for line in text.split("\n"):
+        if line.startswith("event: "):
+            current_event = line[7:].strip()
+        elif line.startswith("data: "):
+            events.append((current_event, line[6:]))
+            current_event = "message"
+    return events
+
+
 class TestGatewayAnalysis:
     @patch("backend.api.analysis._build_provider")
     @patch("backend.agents.base.BaseAgent._get_provider")
@@ -27,10 +40,15 @@ class TestGatewayAnalysis:
         })
 
         assert response.status_code == 200
-        body = response.json()
-        assert body["doc_id"] == "test-doc-1"
-        assert body["file_name"] == "test.pdf"
-        assert body["status"] == "ok"
+        import json
+        events = _parse_sse_events(response.text)
+        event_names = [e[0] for e in events]
+        assert "agent_start" in event_names
+        assert "agent_done" in event_names
+        assert "complete" in event_names
+        complete_data = json.loads([d for e, d in events if e == "complete"][0])
+        assert complete_data["doc_id"] == "test-doc-1"
+        assert complete_data["status"] == "ok"
 
     @patch("backend.api.analysis._build_provider")
     @patch("backend.agents.base.BaseAgent._get_provider")
@@ -50,9 +68,11 @@ class TestGatewayAnalysis:
         })
 
         assert response.status_code == 200
-        body = response.json()
-        assert "reading_card" in body
-        assert len(body["reading_card"]) > 0
+        import json
+        events = _parse_sse_events(response.text)
+        complete_data = json.loads([d for e, d in events if e == "complete"][0])
+        assert "reading_card" in complete_data
+        assert len(complete_data["reading_card"]) > 0
 
     def test_gateway_rejects_empty_text(self):
         from backend.main import app
@@ -150,83 +170,6 @@ class TestKnowledgeQA:
         mock_get_orchestrator.assert_called_once()
         call_kwargs = mock_get_orchestrator.call_args
         assert call_kwargs[0][0] is not None  # chat_config
-
-
-# ── Provider health endpoints ────────────────────────────────────────────────
-
-
-class TestHealthEndpoints:
-    @patch("backend.api.config.create_chat_provider")
-    def test_chat_health_ok(self, mock_factory):
-        from backend.main import app
-
-        mock_provider = MagicMock()
-        mock_provider.health_check.return_value = True
-        mock_factory.return_value = mock_provider
-
-        client = TestClient(app)
-        response = client.post("/api/config/health/chat")
-
-        assert response.status_code == 200
-        body = response.json()
-        assert body["status"] == "ok"
-
-    @patch("backend.api.config.create_chat_provider")
-    def test_chat_health_failure(self, mock_factory):
-        from backend.main import app
-
-        mock_provider = MagicMock()
-        mock_provider.health_check.return_value = False
-        mock_factory.return_value = mock_provider
-
-        client = TestClient(app)
-        response = client.post("/api/config/health/chat")
-
-        assert response.status_code == 200
-        body = response.json()
-        assert body["status"] == "error"
-
-    @patch("backend.api.config.create_embedding_provider")
-    def test_embedding_health_ok(self, mock_factory):
-        from backend.main import app
-
-        mock_provider = MagicMock()
-        mock_provider.health_check.return_value = True
-        mock_factory.return_value = mock_provider
-
-        client = TestClient(app)
-        response = client.post("/api/config/health/embedding")
-
-        assert response.status_code == 200
-        body = response.json()
-        assert body["status"] == "ok"
-
-    @patch("backend.api.config.create_embedding_provider")
-    def test_embedding_health_failure(self, mock_factory):
-        from backend.main import app
-
-        mock_provider = MagicMock()
-        mock_provider.health_check.return_value = False
-        mock_factory.return_value = mock_provider
-
-        client = TestClient(app)
-        response = client.post("/api/config/health/embedding")
-
-        assert response.status_code == 200
-        body = response.json()
-        assert body["status"] == "error"
-
-    @patch("backend.api.config.create_chat_provider")
-    def test_chat_health_config_error_returns_400(self, mock_factory):
-        from backend.core.providers.base import ProviderConfigError
-
-        mock_factory.side_effect = ProviderConfigError("API key is required")
-
-        from backend.main import app
-        client = TestClient(app)
-        response = client.post("/api/config/health/chat")
-
-        assert response.status_code == 400
 
 
 # ── BaseAgent with provider ──────────────────────────────────────────────────

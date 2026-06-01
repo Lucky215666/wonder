@@ -14,7 +14,7 @@ class AnthropicProvider:
         base_url: str,
         client: Anthropic | None = None,
     ):
-        self._client = client or Anthropic(api_key=api_key, base_url=base_url)
+        self._client = client or Anthropic(api_key=api_key, base_url=base_url, timeout=300.0)
 
     def chat(
         self,

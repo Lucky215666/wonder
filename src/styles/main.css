@@ -1138,6 +1138,8 @@ h1, h2, h3, h4, h5, h6 {
 /* ---------- ChatMessage ---------- */
 .wonder-chat-msg {
   display: flex;
+  align-items: flex-start;
+  gap: 10px;
   margin-bottom: 16px;
   animation: wonder-fade-up 0.2s var(--ease-out);
 }
@@ -1150,8 +1152,39 @@ h1, h2, h3, h4, h5, h6 {
   justify-content: flex-start;
 }
 
-.wonder-chat-bubble {
+.wonder-chat-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  font-size: 16px;
+  color: var(--ink-muted);
+}
+
+.wonder-chat-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.wonder-chat-avatar--bot {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.wonder-chat-bubble-wrap {
   max-width: 80%;
+  min-width: 0;
+}
+
+.wonder-chat-bubble {
   padding: 12px 16px;
   border-radius: var(--radius-card);
   font-size: 14px;
@@ -1175,11 +1208,6 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 4px var(--radius-card) var(--radius-card) var(--radius-card);
   font-family: var(--font-serif);
   font-size: 15px;
-}
-
-.wonder-chat-bubble .anticon {
-  margin-right: 6px;
-  opacity: 0.7;
 }
 
 /* ---------- StepProgress ---------- */
@@ -2065,6 +2093,103 @@ h1, h2, h3, h4, h5, h6 {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* ---------- Markdown body (AI-generated academic content) ---------- */
+.md-body {
+  font-family: var(--font-serif);
+  font-size: 13.5px;
+  line-height: 1.75;
+  color: var(--ink-secondary);
+}
+.md-body p {
+  margin: 0 0 8px;
+}
+.md-body p:last-child {
+  margin-bottom: 0;
+}
+.md-body strong {
+  color: var(--ink-dense);
+  font-weight: 600;
+}
+.md-body em {
+  font-style: italic;
+}
+.md-body ul, .md-body ol {
+  margin: 4px 0 8px;
+  padding-left: 1.5em;
+}
+.md-body li {
+  margin: 2px 0;
+}
+.md-body li::marker {
+  color: var(--accent);
+}
+.md-body h1, .md-body h2, .md-body h3, .md-body h4 {
+  font-family: var(--font-serif);
+  color: var(--ink-dense);
+  font-weight: 600;
+  margin: 12px 0 6px;
+  line-height: 1.4;
+}
+.md-body h1 { font-size: 16px; }
+.md-body h2 { font-size: 15px; }
+.md-body h3 { font-size: 14px; }
+.md-body h4 { font-size: 13px; }
+.md-body code {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  background: rgba(91, 127, 110, 0.06);
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: var(--accent-text);
+}
+.md-body pre {
+  background: var(--bg);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+.md-body pre code {
+  background: none;
+  padding: 0;
+  font-size: 12.5px;
+}
+.md-body blockquote {
+  margin: 8px 0;
+  padding: 8px 16px;
+  border-left: 3px solid var(--accent);
+  background: rgba(91, 127, 110, 0.04);
+  color: var(--ink-secondary);
+}
+.md-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 13px;
+}
+.md-body thead th {
+  background: rgba(91, 127, 110, 0.06);
+  font-weight: 600;
+  color: var(--ink-dense);
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 2px solid var(--border);
+}
+.md-body tbody td {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border-light);
+  color: var(--ink-secondary);
+}
+.md-body tbody tr:hover {
+  background: rgba(91, 127, 110, 0.02);
+}
+.md-body hr {
+  border: none;
+  border-top: 1px solid var(--border-light);
+  margin: 12px 0;
 }
 
 /* ---------- 响应式 ---------- */

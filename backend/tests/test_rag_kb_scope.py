@@ -17,7 +17,6 @@ class FakeEmbedding:
 class FakeStorage:
     def __init__(self):
         self.added = None
-        self.inserted = None
         self.deleted = None
 
     def add_to_collection(self, ids, embeddings, metadatas, documents):
@@ -28,14 +27,8 @@ class FakeStorage:
             "documents": documents,
         }
 
-    def insert_document(self, **kwargs):
-        self.inserted = kwargs
-
     def delete_from_collection(self, doc_id, knowledge_base_id=None):
         self.deleted = (doc_id, knowledge_base_id)
-
-    def delete_document(self, doc_id):
-        pass
 
 
 def test_indexer_uses_ts_doc_id_and_kb_metadata():
@@ -184,8 +177,7 @@ def real_chroma_storage():
     """Create a real StorageManager with a temp ChromaDB for integration tests."""
     tmpdir = tempfile.mkdtemp()
     chroma_path = os.path.join(tmpdir, "chroma")
-    sqlite_path = os.path.join(tmpdir, "test.db")
-    storage = StorageManager(chroma_path, sqlite_path)
+    storage = StorageManager(chroma_path)
     yield storage
     storage.close()
     shutil.rmtree(tmpdir, onerror=lambda *args: None)

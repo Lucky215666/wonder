@@ -1,4 +1,5 @@
 from typing import List
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from .base import BaseAgent
 
 
@@ -13,11 +14,8 @@ Requirements:
 4. Do not output lengthy reasoning, only structured results.
 """
 
-    def run(self, text_chunks: List[str], progress_callback=None) -> str:
-        partial_summaries = []
-
-        for idx, chunk in enumerate(text_chunks):
-            user_prompt = f"""
+    def _extract_chunk(self, chunk: str) -> str:
+        user_prompt = f"""
 Please read the following material fragment and extract structured information.
 
 Fragment:
@@ -35,16 +33,33 @@ Output format:
 - Reusable Content:
 - Uncertain/Missing Information:
 """
-            result = self.call_llm(
-                system_prompt=self.SYSTEM_PROMPT,
-                user_prompt=user_prompt,
-                temperature=0.2,
-                max_tokens=2200,
-            )
-            partial_summaries.append(result)
+        return self.call_llm(
+            system_prompt=self.SYSTEM_PROMPT,
+            user_prompt=user_prompt,
+            temperature=0.2,
+            max_tokens=2200,
+        )
 
+    def run(self, text_chunks: List[str], progress_callback=None) -> str:
+        partial_summaries = [None] * len(text_chunks)
+        completed_count = 0
+
+        if len(text_chunks) == 1:
+            partial_summaries[0] = self._extract_chunk(text_chunks[0])
             if progress_callback:
-                progress_callback(idx + 1, len(text_chunks))
+                progress_callback(1, 1)
+        else:
+            with ThreadPoolExecutor(max_workers=min(len(text_chunks), 4)) as executor:
+                futures = {
+                    executor.submit(self._extract_chunk, chunk): idx
+                    for idx, chunk in enumerate(text_chunks)
+                }
+                for future in as_completed(futures):
+                    idx = futures[future]
+                    partial_summaries[idx] = future.result()
+                    completed_count += 1
+                    if progress_callback:
+                        progress_callback(completed_count, len(text_chunks))
 
         merged_prompt = f"""
 The following are analysis results from different fragments of the same material.
@@ -54,6 +69,8 @@ Fragment Analysis Results:
 {chr(10).join(partial_summaries)}
 
 Output strictly in this format:
+
+Paper Title: [Extract the original title of this paper/document from the content. If no clear title is found, write "未知标题"]
 
 # Research Material Reading Card
 

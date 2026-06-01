@@ -4,9 +4,26 @@ import { StorageService } from '../services/storage'
 import { PythonBackendClient } from '../services/python-backend'
 import { randomUUID } from 'crypto'
 
+function extractTopicSummary(readingCard: string, maxLen = 500): string {
+  if (!readingCard) return ''
+  // Try "## 1. Topic Summary" or similar
+  const match = readingCard.match(/##\s*(?:\d+[.)、]\s*)?Topic\s*Summary\s*\n([\s\S]*?)(?=\n##\s|\Z)/i)
+  if (match?.[1]?.trim()) return match[1].trim().slice(0, maxLen)
+  // Try Chinese heading
+  const match2 = readingCard.match(/##\s*(?:\d+[.)、]\s*)?(?:主题摘要|摘要|概要)\s*\n([\s\S]*?)(?=\n##\s|\Z)/)
+  if (match2?.[1]?.trim()) return match2[1].trim().slice(0, maxLen)
+  // Fallback: first non-heading line
+  for (const line of readingCard.split('\n')) {
+    const trimmed = line.trim()
+    if (trimmed && !trimmed.startsWith('#')) return trimmed.slice(0, maxLen)
+  }
+  return ''
+}
+
 interface PythonGatewayResponse {
   doc_id: string
   file_name: string
+  paper_title?: string
   status: 'ok' | 'partial'
   failed_agents: string[]
   reading_card: string
@@ -16,10 +33,21 @@ interface PythonGatewayResponse {
   summary: string
   tags: string[]
   fit_score?: number
+  fit_reason?: string
+  relation_type?: string
   placement?: string
   recommended_action?: string
   readme_suggestions: Array<{ section: string; suggestion: string; reason?: string }>
   source_chunks: string[]
+  suggested_placement?: { sub_direction: string; tags: string[] }
+  novelty_for_kb?: string
+  writing_assets?: {
+    usable_claims: string[]
+    method_references: string[]
+    theory_references: string[]
+    possible_literature_review_use: string
+    limitations_or_critique: string
+  }
 }
 
 export function analysisRoutes(storage: StorageService, python: PythonBackendClient) {
@@ -38,16 +66,10 @@ export function analysisRoutes(storage: StorageService, python: PythonBackendCli
 
     return streamSSE(c, async (stream) => {
       const docId = randomUUID()
-      let cancelled = false
-      stream.onAbort(() => { cancelled = true })
+      const abortController = new AbortController()
+      stream.onAbort(() => { abortController.abort() })
 
       try {
-        // Step 1: 文献解析
-        await stream.writeSSE({
-          event: 'step',
-          data: JSON.stringify({ step: 'literature', status: 'done', label: '文献解析', progress: 0 }),
-        })
-
         // Load KB context
         let kbContext = ''
         if (knowledgeBaseId) {
@@ -68,54 +90,62 @@ export function analysisRoutes(storage: StorageService, python: PythonBackendCli
 
         const globalProfile = storage.getConfig('globalProfile') || ''
 
-        // Step 2: 关联分析 (forward to Python)
-        if (cancelled) return
-        await stream.writeSSE({
-          event: 'step',
-          data: JSON.stringify({ step: 'relation', status: 'running', label: '关联分析', progress: 0 }),
-        })
-
+        // Step 2+: Forward Python SSE events
         const truncatedText = text.length > 50000 ? text.slice(0, 50000) + '\n\n[文本已截断]' : text
 
-        const result = await python.post<PythonGatewayResponse>('/api/analysis/gateway', {
+        const stepLabels: Record<string, string> = {
+          literature: '文献解析',
+          relation: '关联分析',
+          writing: '写作素材',
+          todo: '待办提取',
+        }
+        let result: PythonGatewayResponse | null = null
+
+        for await (const sse of python.postSSE('/api/analysis/gateway', {
           doc_id: docId,
           file_name: fileName,
           file_type: fileType,
           text: truncatedText,
           knowledge_base_id: knowledgeBaseId,
           knowledge_base_readme: kbContext,
-          global_profile: globalProfile,
+          global_profile: knowledgeBaseId ? '' : globalProfile,
           max_chars: 7000,
           overlap: 500,
-        })
-
-        if (cancelled) {
-          await stream.writeSSE({
-            event: 'cancel',
-            data: JSON.stringify({ message: '分析已取消' }),
-          })
-          return
+        }, abortController.signal)) {
+          if (sse.event === 'agent_start') {
+            const { step } = JSON.parse(sse.data) as { step: string }
+            await stream.writeSSE({
+              event: 'step',
+              data: JSON.stringify({ step, status: 'running', label: stepLabels[step] || step }),
+            })
+          } else if (sse.event === 'progress') {
+            const { step, chunkCount, total } = JSON.parse(sse.data) as { step: string; chunkCount: number; total: number }
+            await stream.writeSSE({
+              event: 'progress',
+              data: JSON.stringify({ step, chunkCount, total }),
+            })
+          } else if (sse.event === 'agent_done') {
+            const { step } = JSON.parse(sse.data) as { step: string }
+            await stream.writeSSE({
+              event: 'step',
+              data: JSON.stringify({ step, status: 'done', label: stepLabels[step] || step }),
+            })
+          } else if (sse.event === 'complete') {
+            result = JSON.parse(sse.data) as PythonGatewayResponse
+          } else if (sse.event === 'error') {
+            const errData = JSON.parse(sse.data) as { error: string }
+            throw new Error(errData.error)
+          }
         }
 
-        // Mark remaining steps done
-        await stream.writeSSE({
-          event: 'step',
-          data: JSON.stringify({ step: 'relation', status: 'done', label: '关联分析', progress: 0 }),
-        })
-        await stream.writeSSE({
-          event: 'step',
-          data: JSON.stringify({ step: 'writing', status: 'done', label: '写作素材', progress: 0 }),
-        })
-        await stream.writeSSE({
-          event: 'step',
-          data: JSON.stringify({ step: 'todo', status: 'done', label: '待办提取', progress: 0 }),
-        })
+        if (!result) {
+          throw new Error('Python backend did not return analysis result')
+        }
 
         // Step 3: 存储
-        if (cancelled) return
         await stream.writeSSE({
           event: 'step',
-          data: JSON.stringify({ step: 'store', status: 'running', label: '保存结果', progress: 0 }),
+          data: JSON.stringify({ step: 'store', status: 'running', label: '保存结果' }),
         })
 
         const safeStr = (v: unknown): string | undefined => {
@@ -128,7 +158,7 @@ export function analysisRoutes(storage: StorageService, python: PythonBackendCli
           id: docId,
           fileName,
           fileType,
-          summary: result.summary || safeStr(result.reading_card?.split('\n')[0]),
+          summary: extractTopicSummary(result.reading_card || '') || result.summary || result.file_name,
           readingCard: result.reading_card,
           relationAnalysis: result.relation_analysis,
           writingMaterials: result.writing_materials,
@@ -137,51 +167,124 @@ export function analysisRoutes(storage: StorageService, python: PythonBackendCli
           matchScore: result.fit_score,
         })
 
-        // Link to KB if selected
-        if (knowledgeBaseId) {
-          storage.addDocumentToKB({
-            documentId: docId,
-            knowledgeBaseId,
-            subDirection: result.placement,
-            tags: Array.isArray(result.tags) ? result.tags.join(',') : undefined,
-            fitScore: result.fit_score,
-            recommendedAction: result.recommended_action,
-          })
-
-          // Save README suggestions
-          if (Array.isArray(result.readme_suggestions)) {
-            for (const sug of result.readme_suggestions) {
-              storage.addReadmeSuggestion({
-                id: randomUUID(),
-                knowledgeBaseId,
-                documentId: docId,
-                section: sug.section,
-                suggestion: sug.suggestion,
-                reason: sug.reason,
-              })
-            }
+        // Store source chunks for later vector indexing (used by "收录" button)
+        if (Array.isArray(result.source_chunks)) {
+          for (let i = 0; i < result.source_chunks.length; i++) {
+            storage.insertChunk({
+              id: randomUUID(),
+              documentId: docId,
+              content: result.source_chunks[i],
+              chunkIndex: i,
+            })
           }
         }
 
-        // Save history
+        // Save README suggestions (KB context is used for analysis, but document is NOT auto-added to KB)
+        if (knowledgeBaseId && Array.isArray(result.readme_suggestions)) {
+          for (const sug of result.readme_suggestions) {
+            storage.addReadmeSuggestion({
+              id: randomUUID(),
+              knowledgeBaseId,
+              documentId: docId,
+              section: sug.section,
+              suggestion: sug.suggestion,
+              reason: sug.reason,
+            })
+          }
+        }
+
+        // Save history (dual snake_case + camelCase for backward compat)
         const historyId = randomUUID()
-        storage.addHistory({ id: historyId, documentId: docId, result: JSON.stringify(result) })
+        const summaryText = extractTopicSummary(result.reading_card || '') || result.summary || result.file_name
+        const historyResult: Record<string, unknown> = {
+          summary: summaryText,
+          paper_title: result.paper_title || undefined,
+          paperTitle: result.paper_title || undefined,
+          reading_card: result.reading_card,
+          readingCard: result.reading_card,
+          fit_score: result.fit_score,
+          knowledgeBaseFitScore: result.fit_score,
+          fit_reason: result.fit_reason,
+          fitReason: result.fit_reason,
+          relation_type: result.relation_type,
+          relation_analysis: result.relation_analysis,
+          writing_materials: result.writing_materials,
+          todo_list: result.todo_list,
+          recommended_action: result.recommended_action,
+          recommendedAction: result.recommended_action,
+          tags: result.tags,
+          suggested_placement: result.suggested_placement,
+          suggestedPlacement: result.suggested_placement
+            ? { subDirection: result.suggested_placement.sub_direction, tags: result.suggested_placement.tags }
+            : undefined,
+          novelty_for_kb: result.novelty_for_kb,
+          noveltyForKnowledgeBase: result.novelty_for_kb || undefined,
+          readme_suggestions: result.readme_suggestions,
+          readmeUpdateSuggestions: result.readme_suggestions?.length ? result.readme_suggestions : undefined,
+          writing_assets: result.writing_assets,
+          writingAssets: result.writing_assets?.usable_claims?.length ? {
+            usableClaims: result.writing_assets.usable_claims,
+            methodReferences: result.writing_assets.method_references,
+            theoryReferences: result.writing_assets.theory_references,
+            possibleLiteratureReviewUse: result.writing_assets.possible_literature_review_use,
+            limitationsOrCritique: result.writing_assets.limitations_or_critique,
+          } : undefined,
+          knowledgeBaseId: knowledgeBaseId || null,
+          fileName: fileName,
+        }
+        storage.addHistory({ id: historyId, documentId: docId, result: JSON.stringify(historyResult) })
 
         await stream.writeSSE({
           event: 'step',
-          data: JSON.stringify({ step: 'store', status: 'done', label: '保存结果', progress: 0 }),
+          data: JSON.stringify({ step: 'store', status: 'done', label: '保存结果' }),
         })
 
-        // Complete
+        // Complete — include full analysis result so frontend can display immediately
         await stream.writeSSE({
           event: 'complete',
-          data: JSON.stringify({ documentId: docId, knowledgeBaseId: knowledgeBaseId || null, historyId }),
+          data: JSON.stringify({
+            documentId: docId,
+            knowledgeBaseId: knowledgeBaseId || null,
+            historyId,
+            result: {
+              summary: extractTopicSummary(result.reading_card || '') || result.summary || result.file_name,
+              paperTitle: result.paper_title || undefined,
+              readingCard: result.reading_card,
+              knowledgeBaseFitScore: result.fit_score,
+              fitReason: result.fit_reason,
+              relationType: result.relation_type,
+              relationAnalysis: result.relation_analysis,
+              writingMaterials: result.writing_materials,
+              todoList: result.todo_list,
+              recommendedAction: result.recommended_action,
+              tags: result.tags,
+              suggestedPlacement: result.suggested_placement
+                ? { subDirection: result.suggested_placement.sub_direction, tags: result.suggested_placement.tags }
+                : undefined,
+              noveltyForKnowledgeBase: result.novelty_for_kb || undefined,
+              readmeUpdateSuggestions: result.readme_suggestions?.length ? result.readme_suggestions : undefined,
+              writingAssets: result.writing_assets?.usable_claims?.length ? {
+                usableClaims: result.writing_assets.usable_claims,
+                methodReferences: result.writing_assets.method_references,
+                theoryReferences: result.writing_assets.theory_references,
+                possibleLiteratureReviewUse: result.writing_assets.possible_literature_review_use,
+                limitationsOrCritique: result.writing_assets.limitations_or_critique,
+              } : undefined,
+            },
+          }),
         })
       } catch (err) {
-        await stream.writeSSE({
-          event: 'error',
-          data: JSON.stringify({ error: err instanceof Error ? err.message : String(err) }),
-        })
+        if (abortController.signal.aborted) {
+          await stream.writeSSE({
+            event: 'cancel',
+            data: JSON.stringify({ message: '分析已取消' }),
+          })
+        } else {
+          await stream.writeSSE({
+            event: 'error',
+            data: JSON.stringify({ error: err instanceof Error ? err.message : String(err) }),
+          })
+        }
       }
     })
   })

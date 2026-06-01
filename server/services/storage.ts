@@ -17,6 +17,10 @@ export interface DocumentRow {
   todo_list: string | null
   tags: string | null
   match_score: number | null
+  lifecycle_status: string | null
+  index_status: string | null
+  index_error: string | null
+  indexed_at: string | null
 }
 
 export interface ChunkRow {
@@ -53,6 +57,26 @@ export interface DocumentKBRow {
   created_at: string
 }
 
+export interface DiscoveryCandidateRow {
+  id: string
+  paper_id: string
+  title: string
+  abstract: string | null
+  year: number | null
+  citation_count: number
+  influential_citation_count: number
+  venue: string | null
+  authors: string | null
+  url: string | null
+  source_query: string | null
+  discovery_priority_score: number
+  discovery_reason: string | null
+  state: string
+  knowledge_base_id: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface ReadmeSuggestionRow {
   id: string
   knowledge_base_id: string
@@ -61,6 +85,67 @@ export interface ReadmeSuggestionRow {
   suggestion: string
   reason: string | null
   status: string
+  created_at: string
+}
+
+export interface BatchRunRow {
+  id: string
+  name: string
+  knowledge_base_id: string | null
+  status: string
+  created_at: string
+  completed_at: string | null
+}
+
+export interface PaperNodeRow {
+  paper_id: string
+  title: string
+  abstract: string | null
+  year: number | null
+  citation_count: number
+  venue: string | null
+  authors: string | null
+  url: string | null
+  updated_at: string
+}
+
+export interface PaperEdgeRow {
+  id: string
+  from_paper_id: string
+  to_paper_id: string
+  type: string
+  source_seed_paper_id: string | null
+  created_at: string
+}
+
+export interface BatchItemRow {
+  id: string
+  batch_run_id: string
+  file_name: string
+  file_type: string | null
+  status: string
+  document_id: string | null
+  history_id: string | null
+  error: string | null
+  created_at: string
+  completed_at: string | null
+}
+
+export interface QASessionRow {
+  id: string
+  title: string
+  scope_type: string
+  scope_ids: string
+  created_at: string
+  updated_at: string
+}
+
+export interface QAMessageRow {
+  id: string
+  session_id: string
+  role: string
+  content: string
+  sources: string | null
   created_at: string
 }
 
@@ -73,6 +158,20 @@ export class StorageService {
     this.db = db
     this.db.pragma('journal_mode = WAL')
     this.db.pragma('foreign_keys = ON')
+    this.migrateDocumentLifecycle()
+  }
+
+  private migrateDocumentLifecycle() {
+    const columns = this.db.prepare('PRAGMA table_info(documents)').all() as { name: string }[]
+    const existing = new Set(columns.map(c => c.name))
+    const migrations: string[] = []
+    if (!existing.has('lifecycle_status')) migrations.push("ALTER TABLE documents ADD COLUMN lifecycle_status TEXT DEFAULT 'analyzed'")
+    if (!existing.has('index_status')) migrations.push("ALTER TABLE documents ADD COLUMN index_status TEXT DEFAULT 'not_indexed'")
+    if (!existing.has('index_error')) migrations.push('ALTER TABLE documents ADD COLUMN index_error TEXT')
+    if (!existing.has('indexed_at')) migrations.push('ALTER TABLE documents ADD COLUMN indexed_at TEXT')
+    for (const sql of migrations) {
+      this.db.exec(sql)
+    }
   }
 
   static create(dataDir: string): StorageService {
@@ -130,6 +229,15 @@ export class StorageService {
     this.db.prepare('DELETE FROM documents WHERE id = ?').run(id)
   }
 
+  updateDocumentLifecycle(id: string, status: string) {
+    this.db.prepare('UPDATE documents SET lifecycle_status = ? WHERE id = ?').run(status, id)
+  }
+
+  updateDocumentIndexStatus(id: string, status: string, error?: string | null) {
+    this.db.prepare('UPDATE documents SET index_status = ?, index_error = ?, indexed_at = CASE WHEN ? = \'indexed\' THEN datetime(\'now\') ELSE indexed_at END WHERE id = ?')
+      .run(status, error ?? null, status, id)
+  }
+
   // ── Chunk methods ───────────────────────────────────────────────────
 
   insertChunk(chunk: { id: string; documentId: string; content: string; embedding?: Buffer; chunkIndex: number }) {
@@ -179,6 +287,10 @@ export class StorageService {
 
   listHistory(limit = 50): HistoryRow[] {
     return this.db.prepare('SELECT * FROM analysis_history ORDER BY created_at DESC LIMIT ?').all(limit) as HistoryRow[]
+  }
+
+  getLatestHistoryByDocumentId(documentId: string): HistoryRow | undefined {
+    return this.db.prepare('SELECT * FROM analysis_history WHERE document_id = ? ORDER BY created_at DESC LIMIT 1').get(documentId) as HistoryRow | undefined
   }
 
   // ── Knowledge Base methods ──────────────────────────────────────────
@@ -306,8 +418,108 @@ export class StorageService {
       .all(knowledgeBaseId) as ReadmeSuggestionRow[]
   }
 
+  getReadmeSuggestionById(id: string): ReadmeSuggestionRow | undefined {
+    return this.db.prepare('SELECT * FROM readme_suggestions WHERE id = ?').get(id) as ReadmeSuggestionRow | undefined
+  }
+
   updateReadmeSuggestionStatus(id: string, status: string) {
     this.db.prepare('UPDATE readme_suggestions SET status = ? WHERE id = ?').run(status, id)
+  }
+
+  // ── Discovery candidate methods ──────────────────────────────────────
+
+  upsertDiscoveryCandidate(candidate: {
+    id: string; paperId: string; title: string; abstract?: string | null;
+    year?: number | null; citationCount?: number; influentialCitationCount?: number;
+    venue?: string | null; authors?: string | null; url?: string | null;
+    sourceQuery?: string | null; discoveryPriorityScore?: number;
+    discoveryReason?: string | null; state?: string; knowledgeBaseId?: string | null
+  }) {
+    const kbId = candidate.knowledgeBaseId ?? null
+    // Check for existing candidate with same paper_id and matching knowledge_base_id
+    const existing = this.db.prepare(
+      'SELECT id FROM discovery_candidates WHERE paper_id = ? AND (knowledge_base_id = ? OR (knowledge_base_id IS NULL AND ? IS NULL))'
+    ).get(candidate.paperId, kbId, kbId) as { id: string } | undefined
+
+    if (existing) {
+      this.db.prepare(`
+        UPDATE discovery_candidates SET
+          title=@title, abstract=@abstract, year=@year, citation_count=@citationCount,
+          influential_citation_count=@influentialCitationCount, venue=@venue, authors=@authors,
+          url=@url, source_query=COALESCE(@sourceQuery, source_query),
+          discovery_priority_score=@discoveryPriorityScore, discovery_reason=@discoveryReason,
+          state=@state, updated_at=datetime('now')
+        WHERE id=@id
+      `).run({
+        id: existing.id,
+        title: candidate.title,
+        abstract: candidate.abstract ?? null,
+        year: candidate.year ?? null,
+        citationCount: candidate.citationCount ?? 0,
+        influentialCitationCount: candidate.influentialCitationCount ?? 0,
+        venue: candidate.venue ?? null,
+        authors: candidate.authors ?? null,
+        url: candidate.url ?? null,
+        sourceQuery: candidate.sourceQuery ?? null,
+        discoveryPriorityScore: candidate.discoveryPriorityScore ?? 0,
+        discoveryReason: candidate.discoveryReason ?? null,
+        state: candidate.state ?? 'saved',
+      })
+    } else {
+      this.db.prepare(`
+        INSERT INTO discovery_candidates (id, paper_id, title, abstract, year, citation_count,
+          influential_citation_count, venue, authors, url, source_query,
+          discovery_priority_score, discovery_reason, state, knowledge_base_id)
+        VALUES (@id, @paperId, @title, @abstract, @year, @citationCount,
+          @influentialCitationCount, @venue, @authors, @url, @sourceQuery,
+          @discoveryPriorityScore, @discoveryReason, @state, @knowledgeBaseId)
+      `).run({
+        id: candidate.id,
+        paperId: candidate.paperId,
+        title: candidate.title,
+        abstract: candidate.abstract ?? null,
+        year: candidate.year ?? null,
+        citationCount: candidate.citationCount ?? 0,
+        influentialCitationCount: candidate.influentialCitationCount ?? 0,
+        venue: candidate.venue ?? null,
+        authors: candidate.authors ?? null,
+        url: candidate.url ?? null,
+        sourceQuery: candidate.sourceQuery ?? null,
+        discoveryPriorityScore: candidate.discoveryPriorityScore ?? 0,
+        discoveryReason: candidate.discoveryReason ?? null,
+        state: candidate.state ?? 'saved',
+        knowledgeBaseId: kbId,
+      })
+    }
+  }
+
+  getDiscoveryCandidate(id: string): DiscoveryCandidateRow | undefined {
+    return this.db.prepare('SELECT * FROM discovery_candidates WHERE id = ?').get(id) as DiscoveryCandidateRow | undefined
+  }
+
+  listDiscoveryCandidates(opts?: { knowledgeBaseId?: string; state?: string }): DiscoveryCandidateRow[] {
+    const conditions: string[] = []
+    const values: unknown[] = []
+    if (opts?.knowledgeBaseId) {
+      conditions.push('knowledge_base_id = ?')
+      values.push(opts.knowledgeBaseId)
+    }
+    if (opts?.state) {
+      conditions.push('state = ?')
+      values.push(opts.state)
+    }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+    return this.db.prepare(`SELECT * FROM discovery_candidates ${where} ORDER BY created_at DESC`)
+      .all(...values) as DiscoveryCandidateRow[]
+  }
+
+  updateDiscoveryCandidateState(id: string, state: string) {
+    this.db.prepare("UPDATE discovery_candidates SET state = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(state, id)
+  }
+
+  deleteDiscoveryCandidate(id: string) {
+    this.db.prepare('DELETE FROM discovery_candidates WHERE id = ?').run(id)
   }
 
   // ── KB-scoped chunks ───────────────────────────────────────────────
@@ -319,6 +531,143 @@ export class StorageService {
       WHERE dkb.knowledge_base_id = ?
       ORDER BY c.document_id, c.chunk_index
     `).all(knowledgeBaseId) as ChunkRow[]
+  }
+
+  // ── Batch methods ─────────────────────────────────────────────────────
+
+  createBatchRun(run: { id: string; name: string; knowledge_base_id?: string }) {
+    this.db.prepare('INSERT INTO batch_runs (id, name, knowledge_base_id) VALUES (?, ?, ?)')
+      .run(run.id, run.name, run.knowledge_base_id ?? null)
+  }
+
+  getBatchRun(id: string): BatchRunRow | undefined {
+    return this.db.prepare('SELECT * FROM batch_runs WHERE id = ?').get(id) as BatchRunRow | undefined
+  }
+
+  getBatchRuns(): BatchRunRow[] {
+    return this.db.prepare('SELECT * FROM batch_runs ORDER BY created_at DESC').all() as BatchRunRow[]
+  }
+
+  updateBatchRunStatus(id: string, status: string, completed_at?: string) {
+    this.db.prepare('UPDATE batch_runs SET status = ?, completed_at = ? WHERE id = ?')
+      .run(status, completed_at ?? null, id)
+  }
+
+  createBatchItem(item: { id: string; batch_run_id: string; file_name: string; file_type?: string }) {
+    this.db.prepare('INSERT INTO batch_items (id, batch_run_id, file_name, file_type) VALUES (?, ?, ?, ?)')
+      .run(item.id, item.batch_run_id, item.file_name, item.file_type ?? null)
+  }
+
+  getBatchItemsByRunId(runId: string): BatchItemRow[] {
+    return this.db.prepare('SELECT * FROM batch_items WHERE batch_run_id = ? ORDER BY created_at ASC')
+      .all(runId) as BatchItemRow[]
+  }
+
+  updateBatchItemStatus(id: string, fields: { status?: string; document_id?: string; history_id?: string; error?: string; completed_at?: string }) {
+    const cols: string[] = []
+    const values: unknown[] = []
+    if (fields.status !== undefined) { cols.push('status = ?'); values.push(fields.status) }
+    if (fields.document_id !== undefined) { cols.push('document_id = ?'); values.push(fields.document_id) }
+    if (fields.history_id !== undefined) { cols.push('history_id = ?'); values.push(fields.history_id) }
+    if (fields.error !== undefined) { cols.push('error = ?'); values.push(fields.error) }
+    if (fields.completed_at !== undefined) { cols.push('completed_at = ?'); values.push(fields.completed_at) }
+    if (cols.length === 0) return
+    values.push(id)
+    this.db.prepare(`UPDATE batch_items SET ${cols.join(', ')} WHERE id = ?`).run(...values)
+  }
+
+  // ── Citation graph methods ─────────────────────────────────────────
+
+  upsertPaperNode(node: {
+    paperId: string; title: string; abstract?: string | null;
+    year?: number | null; citationCount?: number; venue?: string | null;
+    authors?: string | null; url?: string | null
+  }) {
+    this.db.prepare(`
+      INSERT INTO paper_nodes (paper_id, title, abstract, year, citation_count, venue, authors, url, updated_at)
+      VALUES (@paperId, @title, @abstract, @year, @citationCount, @venue, @authors, @url, datetime('now'))
+      ON CONFLICT(paper_id) DO UPDATE SET
+        title=excluded.title, abstract=COALESCE(excluded.abstract, abstract),
+        year=COALESCE(excluded.year, year), citation_count=excluded.citation_count,
+        venue=COALESCE(excluded.venue, venue), authors=COALESCE(excluded.authors, authors),
+        url=COALESCE(excluded.url, url), updated_at=datetime('now')
+    `).run({
+      paperId: node.paperId,
+      title: node.title,
+      abstract: node.abstract ?? null,
+      year: node.year ?? null,
+      citationCount: node.citationCount ?? 0,
+      venue: node.venue ?? null,
+      authors: node.authors ?? null,
+      url: node.url ?? null,
+    })
+  }
+
+  getPaperNode(paperId: string): PaperNodeRow | undefined {
+    return this.db.prepare('SELECT * FROM paper_nodes WHERE paper_id = ?').get(paperId) as PaperNodeRow | undefined
+  }
+
+  insertPaperEdge(edge: {
+    id: string; fromPaperId: string; toPaperId: string;
+    type: string; sourceSeedPaperId?: string | null
+  }) {
+    this.db.prepare(`
+      INSERT OR IGNORE INTO paper_edges (id, from_paper_id, to_paper_id, type, source_seed_paper_id)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(edge.id, edge.fromPaperId, edge.toPaperId, edge.type, edge.sourceSeedPaperId ?? null)
+  }
+
+  getPaperEdgesBySeed(seedPaperId: string): PaperEdgeRow[] {
+    return this.db.prepare(
+      'SELECT * FROM paper_edges WHERE source_seed_paper_id = ?'
+    ).all(seedPaperId) as PaperEdgeRow[]
+  }
+
+  getPaperEdgesByNode(paperId: string): PaperEdgeRow[] {
+    return this.db.prepare(
+      'SELECT * FROM paper_edges WHERE from_paper_id = ? OR to_paper_id = ?'
+    ).all(paperId, paperId) as PaperEdgeRow[]
+  }
+
+  // ── QA Session methods ─────────────────────────────────────────────────
+
+  createQASession(session: { id: string; title: string; scope_type?: string; scope_ids?: string }) {
+    this.db.prepare('INSERT INTO qa_sessions (id, title, scope_type, scope_ids) VALUES (?, ?, ?, ?)')
+      .run(session.id, session.title, session.scope_type ?? 'knowledge_base', session.scope_ids ?? '[]')
+  }
+
+  getQASession(id: string): QASessionRow | undefined {
+    return this.db.prepare('SELECT * FROM qa_sessions WHERE id = ?').get(id) as QASessionRow | undefined
+  }
+
+  getQASessions(): QASessionRow[] {
+    return this.db.prepare('SELECT * FROM qa_sessions ORDER BY updated_at DESC').all() as QASessionRow[]
+  }
+
+  updateQASession(id: string, fields: { title?: string; scope_type?: string; scope_ids?: string }) {
+    const cols: string[] = []
+    const values: unknown[] = []
+    if (fields.title !== undefined) { cols.push('title = ?'); values.push(fields.title) }
+    if (fields.scope_type !== undefined) { cols.push('scope_type = ?'); values.push(fields.scope_type) }
+    if (fields.scope_ids !== undefined) { cols.push('scope_ids = ?'); values.push(fields.scope_ids) }
+    if (cols.length === 0) return
+    cols.push("updated_at = datetime('now')")
+    values.push(id)
+    this.db.prepare(`UPDATE qa_sessions SET ${cols.join(', ')} WHERE id = ?`).run(...values)
+  }
+
+  deleteQASession(id: string) {
+    this.db.prepare('DELETE FROM qa_sessions WHERE id = ?').run(id)
+  }
+
+  addQAMessage(msg: { id: string; session_id: string; role: string; content: string; sources?: string }) {
+    this.db.prepare('INSERT INTO qa_messages (id, session_id, role, content, sources) VALUES (?, ?, ?, ?, ?)')
+      .run(msg.id, msg.session_id, msg.role, msg.content, msg.sources ?? null)
+  }
+
+  getQAMessagesBySessionId(sessionId: string): QAMessageRow[] {
+    return this.db.prepare('SELECT * FROM qa_messages WHERE session_id = ? ORDER BY created_at ASC')
+      .all(sessionId) as QAMessageRow[]
   }
 
   // ── Lifecycle ───────────────────────────────────────────────────────

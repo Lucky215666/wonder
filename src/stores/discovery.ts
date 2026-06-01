@@ -1,88 +1,142 @@
 import { create } from 'zustand'
+import { api } from '../services/api'
 import type { DiscoveryContext, DiscoveryCandidate } from '../types/discovery'
-
-const STORAGE_KEY = 'wonder-discovery-candidates'
-
-function loadCandidatesFromStorage(): DiscoveryCandidate[] {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY)
-    if (stored) {
-      return JSON.parse(stored)
-    }
-  } catch {
-    // ignore parse errors
-  }
-  return []
-}
-
-function saveCandidatesToStorage(candidates: DiscoveryCandidate[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(candidates))
-  } catch {
-    // ignore storage errors
-  }
-}
+import type { S2Paper, S2SearchResult } from '../lib/discovery/types'
 
 interface DiscoveryState {
+  // Context
   discoveryContext: DiscoveryContext | null
-  candidateQueue: DiscoveryCandidate[]
-
   setDiscoveryContext: (context: DiscoveryContext) => void
   clearDiscoveryContext: () => void
-  addToCandidateQueue: (candidate: DiscoveryCandidate) => void
-  updateCandidateState: (paperId: string, state: DiscoveryCandidate['state']) => void
-  removeCandidate: (paperId: string) => void
-  clearCandidateQueue: () => void
+
+  // Search
+  searchResults: S2Paper[]
+  searchLoading: boolean
+  hasSearched: boolean
+  searchPapers: (query: string, limit?: number) => Promise<void>
+
+  // Candidates (API-backed)
+  candidateQueue: DiscoveryCandidate[]
+  candidatesLoading: boolean
+  loadCandidates: (knowledgeBaseId?: string) => Promise<void>
+  saveCandidate: (candidate: Omit<DiscoveryCandidate, 'id'>) => Promise<void>
+  updateCandidateState: (id: string, state: DiscoveryCandidate['state']) => Promise<void>
+  removeCandidate: (id: string) => Promise<void>
   isInQueue: (paperId: string) => boolean
   getCandidate: (paperId: string) => DiscoveryCandidate | undefined
 }
 
+interface ServerCandidate {
+  id: string
+  paper_id: string
+  title: string
+  abstract: string | null
+  year: number | null
+  citation_count: number
+  influential_citation_count: number
+  venue: string | null
+  authors: string | null
+  url: string | null
+  source_query: string | null
+  discovery_priority_score: number
+  discovery_reason: string | null
+  state: string
+  knowledge_base_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+function fromServer(row: ServerCandidate): DiscoveryCandidate {
+  return {
+    id: row.id,
+    paperId: row.paper_id,
+    title: row.title,
+    abstract: row.abstract,
+    year: row.year,
+    citationCount: row.citation_count,
+    influentialCitationCount: row.influential_citation_count,
+    venue: row.venue ?? undefined,
+    authors: row.authors ? JSON.parse(row.authors) : [],
+    url: row.url ?? undefined,
+    sourceQuery: row.source_query ?? '',
+    discoveryPriorityScore: row.discovery_priority_score,
+    discoveryReason: row.discovery_reason ?? '',
+    state: row.state as DiscoveryCandidate['state'],
+    knowledgeBaseId: row.knowledge_base_id,
+  }
+}
+
 export const useDiscoveryStore = create<DiscoveryState>((set, get) => ({
   discoveryContext: null,
-  candidateQueue: loadCandidatesFromStorage(),
 
-  setDiscoveryContext: (context) => {
-    set({ discoveryContext: context })
-  },
+  setDiscoveryContext: (context) => set({ discoveryContext: context }),
+  clearDiscoveryContext: () => set({ discoveryContext: null }),
 
-  clearDiscoveryContext: () => {
-    set({ discoveryContext: null })
-  },
-
-  addToCandidateQueue: (candidate) => {
-    const existing = get().candidateQueue.find(c => c.paperId === candidate.paperId)
-    if (existing) {
-      return
+  // Search via Node proxy
+  searchResults: [],
+  searchLoading: false,
+  hasSearched: false,
+  searchPapers: async (query, limit = 20) => {
+    set({ searchLoading: true })
+    try {
+      const result = await api.get<S2SearchResult>(`/api/discovery/search?q=${encodeURIComponent(query)}&limit=${limit}`)
+      set({ searchResults: result.papers, searchLoading: false, hasSearched: true })
+    } catch {
+      set({ searchLoading: false, hasSearched: true })
     }
-    const updated = [...get().candidateQueue, candidate]
-    saveCandidatesToStorage(updated)
-    set({ candidateQueue: updated })
   },
 
-  updateCandidateState: (paperId, state) => {
-    const updated = get().candidateQueue.map(c =>
-      c.paperId === paperId ? { ...c, state } : c
-    )
-    saveCandidatesToStorage(updated)
-    set({ candidateQueue: updated })
+  // Candidates
+  candidateQueue: [],
+  candidatesLoading: false,
+
+  loadCandidates: async (knowledgeBaseId) => {
+    set({ candidatesLoading: true })
+    try {
+      const params = knowledgeBaseId ? `?knowledgeBaseId=${knowledgeBaseId}` : ''
+      const rows = await api.get<ServerCandidate[]>(`/api/discovery/candidates${params}`)
+      set({ candidateQueue: rows.map(fromServer), candidatesLoading: false })
+    } catch {
+      set({ candidatesLoading: false })
+    }
   },
 
-  removeCandidate: (paperId) => {
-    const updated = get().candidateQueue.filter(c => c.paperId !== paperId)
-    saveCandidatesToStorage(updated)
-    set({ candidateQueue: updated })
+  saveCandidate: async (candidate) => {
+    const body = {
+      paperId: candidate.paperId,
+      title: candidate.title,
+      abstract: candidate.abstract,
+      year: candidate.year,
+      citationCount: candidate.citationCount,
+      influentialCitationCount: candidate.influentialCitationCount,
+      venue: candidate.venue,
+      authors: candidate.authors,
+      url: candidate.url,
+      sourceQuery: candidate.sourceQuery,
+      discoveryPriorityScore: candidate.discoveryPriorityScore,
+      discoveryReason: candidate.discoveryReason,
+      state: candidate.state,
+      knowledgeBaseId: candidate.knowledgeBaseId,
+    }
+    await api.post('/api/discovery/candidates', body)
+    // Reload to get server-assigned id
+    await get().loadCandidates(candidate.knowledgeBaseId ?? undefined)
   },
 
-  clearCandidateQueue: () => {
-    saveCandidatesToStorage([])
-    set({ candidateQueue: [] })
+  updateCandidateState: async (id, state) => {
+    await api.patch(`/api/discovery/candidates/${id}`, { state })
+    set(s => ({
+      candidateQueue: s.candidateQueue.map(c => c.id === id ? { ...c, state } : c),
+    }))
   },
 
-  isInQueue: (paperId) => {
-    return get().candidateQueue.some(c => c.paperId === paperId)
+  removeCandidate: async (id) => {
+    await api.delete(`/api/discovery/candidates/${id}`)
+    set(s => ({
+      candidateQueue: s.candidateQueue.filter(c => c.id !== id),
+    }))
   },
 
-  getCandidate: (paperId) => {
-    return get().candidateQueue.find(c => c.paperId === paperId)
-  },
+  isInQueue: (paperId) => get().candidateQueue.some(c => c.paperId === paperId),
+  getCandidate: (paperId) => get().candidateQueue.find(c => c.paperId === paperId),
 }))

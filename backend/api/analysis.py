@@ -1,24 +1,51 @@
-import os
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+import json
+import asyncio
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from typing import Optional
+
+def _threadsafe_put(loop: asyncio.AbstractEventLoop, queue: asyncio.Queue, item):
+    """Safely put an item into an asyncio.Queue from a non-event-loop thread."""
+    loop.call_soon_threadsafe(queue.put_nowait, item)
 
 from backend.agents.literature import LiteratureParserAgent
 from backend.agents.relation import ProjectRelationAgent
 from backend.agents.writing import WritingAgent
 from backend.agents.todo import TodoAgent
 from backend.agents.orchestrator import Orchestrator
-from backend.core.file_reader import read_file, clean_text
-from backend.core.chunker import chunk_text, estimate_tokens
+from backend.core.chunker import chunk_text
 from backend.core.config import ConfigManager
-from backend.core.history import HistoryManager
-from backend.core.llm_client import LLMCallError
 from backend.core.providers.factory import create_chat_provider
-from backend.models.schemas import GatewayAnalysisRequest, GatewayAnalysisResponse, ChatConfig
+from backend.models.schemas import GatewayAnalysisRequest, ChatConfig
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 
+import re as _re
+
+def _extract_topic_summary(reading_card: str, max_len: int = 500) -> str:
+    """Extract the Topic Summary section from a reading card as the document summary."""
+    if not reading_card:
+        return ""
+    # Try to find "## 1. Topic Summary" or "## Topic Summary" section
+    match = _re.search(r'##\s*(?:\d+[\.\)、]\s*)?Topic\s*Summary\s*\n(.*?)(?=\n##\s|\Z)', reading_card, _re.DOTALL | _re.IGNORECASE)
+    if match:
+        text = match.group(1).strip()
+        if text:
+            return text[:max_len]
+    # Fallback: try Chinese heading
+    match = _re.search(r'##\s*(?:\d+[\.\)、]\s*)?(?:主题摘要|摘要|概要)\s*\n(.*?)(?=\n##\s|\Z)', reading_card, _re.DOTALL)
+    if match:
+        text = match.group(1).strip()
+        if text:
+            return text[:max_len]
+    # Last resort: first non-heading, non-empty line
+    for line in reading_card.splitlines():
+        line = line.strip()
+        if line and not line.startswith('#'):
+            return line[:max_len]
+    return ""
+
 config_manager = ConfigManager("data/config.json")
-history_manager = HistoryManager("data/outputs")
 
 
 def _build_provider(chat_config: Optional[ChatConfig] = None):
@@ -40,113 +67,17 @@ def _build_provider(chat_config: Optional[ChatConfig] = None):
     })
 
 
-@router.post("/single")
-async def analyze_single(
-    file: UploadFile = File(...),
-    max_chars: int = Form(7000),
-    overlap: int = Form(500),
-):
-    file_bytes = await file.read()
-    raw_text = read_file(file.filename, file_bytes)
-    document_text = clean_text(raw_text)
-
-    if not document_text.strip():
-        raise HTTPException(status_code=400, detail="No text extracted from file.")
-
-    text_chunks = chunk_text(document_text, max_chars=max_chars, overlap=overlap)
-    token_estimate = estimate_tokens(document_text)
-
-    config = config_manager.load_normalized()
-    chat = config.get("chat", {})
-    research = config.get("research", {})
-    model_name = chat.get("model", "claude-sonnet-4-20250514")
-    provider = _build_provider()
-
-    try:
-        lit_agent = LiteratureParserAgent(model_name, provider=provider)
-        reading_card = lit_agent.run(text_chunks=text_chunks)
-
-        rel_agent = ProjectRelationAgent(model_name, provider=provider)
-        relation_analysis = rel_agent.run(
-            reading_card=reading_card,
-            user_research_context=research.get("globalProfile", ""),
-        )
-
-        write_agent = WritingAgent(model_name, provider=provider)
-        writing_materials = write_agent.run(
-            reading_card=reading_card,
-            relation_analysis=relation_analysis,
-            writing_style="",
-        )
-
-        todo_agent = TodoAgent(model_name, provider=provider)
-        todo_list = todo_agent.run(
-            reading_card=reading_card,
-            relation_analysis=relation_analysis,
-        )
-
-        from datetime import datetime
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        full_report = f"""# Note Forge Analysis Report
-
-- File: {file.filename}
-- Model: {model_name}
-- Time: {now}
-- Text Length: {len(document_text)} chars
-- Token Estimate: {token_estimate}
-
----
-
-{reading_card}
-
----
-
-{relation_analysis}
-
----
-
-{writing_materials}
-
----
-
-{todo_list}
-"""
-
-        record_id = history_manager.save(
-            file_name=file.filename,
-            model=model_name,
-            reading_card=reading_card,
-            relation_analysis=relation_analysis,
-            writing_materials=writing_materials,
-            todo_list=todo_list,
-            full_report=full_report,
-        )
-
-        return {
-            "id": record_id,
-            "file_name": file.filename,
-            "reading_card": reading_card,
-            "relation_analysis": relation_analysis,
-            "writing_materials": writing_materials,
-            "todo_list": todo_list,
-            "full_report": full_report,
-        }
-
-    except LLMCallError as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/gateway", response_model=GatewayAnalysisResponse)
-async def analyze_gateway(request: GatewayAnalysisRequest):
-    if not request.text.strip():
+@router.post("/gateway")
+async def analyze_gateway(body: GatewayAnalysisRequest, req: Request):
+    if not body.text.strip():
         raise HTTPException(status_code=400, detail="No text provided.")
 
-    text_chunks = chunk_text(request.text, max_chars=request.max_chars, overlap=request.overlap)
+    text_chunks = chunk_text(body.text, max_chars=body.max_chars, overlap=body.overlap)
 
     config = config_manager.load_normalized()
     chat = config.get("chat", {})
     model_name = chat.get("model", "claude-sonnet-4-20250514")
-    provider = _build_provider(request.chat_config)
+    provider = _build_provider(body.chat_config)
 
     agents = {
         "literature": LiteratureParserAgent(model_name, provider=provider),
@@ -156,35 +87,116 @@ async def analyze_gateway(request: GatewayAnalysisRequest):
     }
     orchestrator = Orchestrator(agents=agents)
 
-    failed_agents: list[str] = []
-    try:
-        result = orchestrator.route_task(
-            task_type="analyze_document",
-            text_chunks=text_chunks,
-            research_context="\n\n".join(
-                part for part in [request.global_profile, request.knowledge_base_readme] if part
-            ),
-            writing_style="",
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+    progress_queue: asyncio.Queue = asyncio.Queue()
+    loop = asyncio.get_event_loop()
+    put = lambda item: _threadsafe_put(loop, progress_queue, item)
 
-    reading_card = result.get("reading_card", "")
-    relation_analysis = result.get("relation_analysis", "")
-    writing_materials = result.get("writing_materials", "")
-    todo_list = result.get("todo_list", "")
-    summary = reading_card.splitlines()[0][:400] if reading_card else ""
+    def progress_callback(current: int, total: int):
+        put({"current": current, "total": total})
 
-    return GatewayAnalysisResponse(
-        doc_id=request.doc_id,
-        file_name=request.file_name,
-        status="partial" if failed_agents else "ok",
-        failed_agents=failed_agents,
-        reading_card=reading_card,
-        relation_analysis=relation_analysis,
-        writing_materials=writing_materials,
-        todo_list=todo_list,
-        summary=summary,
-        tags=[],
-        source_chunks=text_chunks,
+    def run_agents():
+        try:
+            for event in orchestrator.run_streaming(
+                task_type="analyze_document",
+                text_chunks=text_chunks,
+                research_context="\n\n".join(
+                    part for part in [body.global_profile, body.knowledge_base_readme] if part
+                ),
+                writing_style="",
+                progress_callback=progress_callback,
+            ):
+                put(event)
+        except Exception as exc:
+            put({"error": str(exc)})
+        finally:
+            put(None)
+
+    async def event_stream():
+        import threading
+        import time as _time
+        thread = threading.Thread(target=run_agents, daemon=True)
+        thread.start()
+
+        result = {}
+        last_activity = _time.monotonic()
+        HEARTBEAT_INTERVAL = 30  # seconds
+        try:
+            while True:
+                if await req.is_disconnected():
+                    break
+
+                try:
+                    item = await asyncio.wait_for(progress_queue.get(), timeout=0.5)
+                except asyncio.TimeoutError:
+                    # Send heartbeat if idle too long
+                    if _time.monotonic() - last_activity >= HEARTBEAT_INTERVAL:
+                        yield ": heartbeat\n\n"
+                        last_activity = _time.monotonic()
+                    continue
+
+                last_activity = _time.monotonic()
+
+                if item is None:
+                    break
+
+                if "error" in item:
+                    yield f"event: error\ndata: {json.dumps({'error': item['error']}, ensure_ascii=False)}\n\n"
+                    return
+
+                if "current" in item:
+                    yield f"event: progress\ndata: {json.dumps({'step': 'literature', 'chunkCount': item['current'], 'total': item['total']}, ensure_ascii=False)}\n\n"
+                    continue
+
+                step = item.get("step")
+                status = item.get("status")
+
+                # Handle events without status (e.g. relation_meta)
+                if step and not status and "data" in item:
+                    result[step] = item["data"]
+                    continue
+
+                if status == "running":
+                    yield f"event: agent_start\ndata: {json.dumps({'step': step}, ensure_ascii=False)}\n\n"
+                elif status == "done":
+                    result[step] = item.get("data", "")
+                    # Don't emit SSE for internal metadata events
+                    if step != "relation_meta":
+                        yield f"event: agent_done\ndata: {json.dumps({'step': step}, ensure_ascii=False)}\n\n"
+
+            reading_card = result.get("literature", "")
+            summary = _extract_topic_summary(reading_card)
+            literature_meta = result.get("literature_meta", {})
+            relation_meta = result.get("relation_meta", {})
+            writing_meta = result.get("writing_meta", {})
+
+            final = {
+                "doc_id": body.doc_id,
+                "file_name": body.file_name,
+                "paper_title": literature_meta.get("paper_title", ""),
+                "status": "ok",
+                "failed_agents": [],
+                "reading_card": reading_card,
+                "relation_analysis": result.get("relation", ""),
+                "writing_materials": result.get("writing", ""),
+                "todo_list": result.get("todo", ""),
+                "summary": summary,
+                "tags": [],
+                "source_chunks": text_chunks,
+                "fit_score": relation_meta.get("fit_score"),
+                "fit_reason": relation_meta.get("fit_reason", ""),
+                "relation_type": relation_meta.get("relation_type", "unrelated"),
+                "recommended_action": relation_meta.get("recommended_action", ""),
+                "suggested_placement": relation_meta.get("suggested_placement", {}),
+                "novelty_for_kb": relation_meta.get("novelty_for_kb", ""),
+                "readme_suggestions": relation_meta.get("readme_suggestions", []),
+                "writing_assets": writing_meta if writing_meta else {},
+            }
+            yield f"event: complete\ndata: {json.dumps(final, ensure_ascii=False)}\n\n"
+        except Exception as exc:
+            yield f"event: error\ndata: {json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

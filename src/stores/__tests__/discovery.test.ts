@@ -2,19 +2,21 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useDiscoveryStore } from '../discovery'
 import type { DiscoveryContext, DiscoveryCandidate } from '../../types/discovery'
 
-// Mock localStorage
-const localStorageMock = (() => {
-  let store: Record<string, string> = {}
-  return {
-    getItem: (key: string) => store[key] ?? null,
-    setItem: (key: string, value: string) => { store[key] = value },
-    removeItem: (key: string) => { delete store[key] },
-    clear: () => { store = {} },
-  }
-})()
-vi.stubGlobal('localStorage', localStorageMock)
+// Mock the api module
+vi.mock('../../services/api', () => ({
+  api: {
+    get: vi.fn(),
+    post: vi.fn(),
+    patch: vi.fn(),
+    delete: vi.fn(),
+  },
+}))
+
+import { api } from '../../services/api'
+const mockApi = vi.mocked(api)
 
 const mockCandidate: DiscoveryCandidate = {
+  id: 'c1',
   paperId: 'test-123',
   title: 'Test Paper',
   abstract: 'Test abstract',
@@ -24,7 +26,8 @@ const mockCandidate: DiscoveryCandidate = {
   sourceQuery: 'test query',
   discoveryPriorityScore: 75,
   discoveryReason: '标题匹配: test',
-  state: 'new',
+  state: 'saved',
+  knowledgeBaseId: null,
 }
 
 const mockContext: DiscoveryContext = {
@@ -33,121 +36,127 @@ const mockContext: DiscoveryContext = {
   keywords: ['test', 'topic'],
 }
 
+const serverCandidate = {
+  id: 'c1',
+  paper_id: 'test-123',
+  title: 'Test Paper',
+  abstract: 'Test abstract',
+  year: 2024,
+  citation_count: 100,
+  influential_citation_count: 0,
+  venue: null,
+  authors: JSON.stringify([{ authorId: 'a1', name: 'Author 1' }]),
+  url: null,
+  source_query: 'test query',
+  discovery_priority_score: 75,
+  discovery_reason: '标题匹配: test',
+  state: 'saved',
+  knowledge_base_id: null,
+  created_at: '2025-01-01',
+  updated_at: '2025-01-01',
+}
+
 describe('useDiscoveryStore', () => {
   beforeEach(() => {
-    const store = useDiscoveryStore.getState()
-    store.clearCandidateQueue()
-    store.clearDiscoveryContext()
-    localStorage.clear()
+    vi.clearAllMocks()
+    useDiscoveryStore.setState({
+      discoveryContext: null,
+      searchResults: [],
+      searchLoading: false,
+      candidateQueue: [],
+      candidatesLoading: false,
+    })
   })
 
-  it('should set discovery context', () => {
-    const { setDiscoveryContext } = useDiscoveryStore.getState()
-
-    setDiscoveryContext(mockContext)
-
-    const { discoveryContext } = useDiscoveryStore.getState()
-    expect(discoveryContext).toEqual(mockContext)
-  })
-
-  it('should clear discovery context', () => {
+  it('should set and clear discovery context', () => {
     const { setDiscoveryContext, clearDiscoveryContext } = useDiscoveryStore.getState()
 
     setDiscoveryContext(mockContext)
-    clearDiscoveryContext()
+    expect(useDiscoveryStore.getState().discoveryContext).toEqual(mockContext)
 
-    const { discoveryContext } = useDiscoveryStore.getState()
-    expect(discoveryContext).toBeNull()
+    clearDiscoveryContext()
+    expect(useDiscoveryStore.getState().discoveryContext).toBeNull()
   })
 
-  it('should add candidate to queue', () => {
-    const { addToCandidateQueue } = useDiscoveryStore.getState()
+  it('should load candidates from API', async () => {
+    mockApi.get.mockResolvedValueOnce([serverCandidate])
 
-    addToCandidateQueue(mockCandidate)
+    await useDiscoveryStore.getState().loadCandidates()
 
+    expect(mockApi.get).toHaveBeenCalledWith('/api/discovery/candidates')
     const { candidateQueue } = useDiscoveryStore.getState()
     expect(candidateQueue).toHaveLength(1)
     expect(candidateQueue[0].paperId).toBe('test-123')
-  })
-
-  it('should not add duplicate candidate', () => {
-    const { addToCandidateQueue } = useDiscoveryStore.getState()
-
-    addToCandidateQueue(mockCandidate)
-    addToCandidateQueue(mockCandidate)
-
-    const { candidateQueue } = useDiscoveryStore.getState()
-    expect(candidateQueue).toHaveLength(1)
-  })
-
-  it('should update candidate state', () => {
-    const { addToCandidateQueue, updateCandidateState } = useDiscoveryStore.getState()
-
-    addToCandidateQueue(mockCandidate)
-    updateCandidateState('test-123', 'saved')
-
-    const { candidateQueue } = useDiscoveryStore.getState()
     expect(candidateQueue[0].state).toBe('saved')
   })
 
-  it('should remove candidate', () => {
-    const { addToCandidateQueue, removeCandidate } = useDiscoveryStore.getState()
+  it('should load candidates filtered by knowledgeBaseId', async () => {
+    mockApi.get.mockResolvedValueOnce([])
 
-    addToCandidateQueue(mockCandidate)
-    removeCandidate('test-123')
+    await useDiscoveryStore.getState().loadCandidates('kb-1')
 
-    const { candidateQueue } = useDiscoveryStore.getState()
-    expect(candidateQueue).toHaveLength(0)
+    expect(mockApi.get).toHaveBeenCalledWith('/api/discovery/candidates?knowledgeBaseId=kb-1')
   })
 
-  it('should clear candidate queue', () => {
-    const { addToCandidateQueue, clearCandidateQueue } = useDiscoveryStore.getState()
+  it('should save candidate via API and reload', async () => {
+    mockApi.post.mockResolvedValueOnce({})
+    mockApi.get.mockResolvedValueOnce([serverCandidate])
 
-    addToCandidateQueue(mockCandidate)
-    clearCandidateQueue()
+    await useDiscoveryStore.getState().saveCandidate(mockCandidate)
 
-    const { candidateQueue } = useDiscoveryStore.getState()
-    expect(candidateQueue).toHaveLength(0)
+    expect(mockApi.post).toHaveBeenCalledWith('/api/discovery/candidates', expect.objectContaining({
+      paperId: 'test-123',
+      title: 'Test Paper',
+      state: 'saved',
+    }))
+  })
+
+  it('should update candidate state via API', async () => {
+    useDiscoveryStore.setState({ candidateQueue: [mockCandidate] })
+    mockApi.patch.mockResolvedValueOnce({})
+
+    await useDiscoveryStore.getState().updateCandidateState('c1', 'ignored')
+
+    expect(mockApi.patch).toHaveBeenCalledWith('/api/discovery/candidates/c1', { state: 'ignored' })
+    expect(useDiscoveryStore.getState().candidateQueue[0].state).toBe('ignored')
+  })
+
+  it('should remove candidate via API', async () => {
+    useDiscoveryStore.setState({ candidateQueue: [mockCandidate] })
+    mockApi.delete.mockResolvedValueOnce({})
+
+    await useDiscoveryStore.getState().removeCandidate('c1')
+
+    expect(mockApi.delete).toHaveBeenCalledWith('/api/discovery/candidates/c1')
+    expect(useDiscoveryStore.getState().candidateQueue).toHaveLength(0)
   })
 
   it('should check if candidate is in queue', () => {
-    const { addToCandidateQueue, isInQueue } = useDiscoveryStore.getState()
+    useDiscoveryStore.setState({ candidateQueue: [mockCandidate] })
 
-    addToCandidateQueue(mockCandidate)
-
-    expect(isInQueue('test-123')).toBe(true)
-    expect(isInQueue('non-existent')).toBe(false)
+    expect(useDiscoveryStore.getState().isInQueue('test-123')).toBe(true)
+    expect(useDiscoveryStore.getState().isInQueue('non-existent')).toBe(false)
   })
 
   it('should get candidate by paperId', () => {
-    const { addToCandidateQueue, getCandidate } = useDiscoveryStore.getState()
+    useDiscoveryStore.setState({ candidateQueue: [mockCandidate] })
 
-    addToCandidateQueue(mockCandidate)
+    const candidate = useDiscoveryStore.getState().getCandidate('test-123')
+    expect(candidate?.paperId).toBe('test-123')
 
-    const candidate = getCandidate('test-123')
-    expect(candidate).toEqual(mockCandidate)
-
-    const nonExistent = getCandidate('non-existent')
+    const nonExistent = useDiscoveryStore.getState().getCandidate('non-existent')
     expect(nonExistent).toBeUndefined()
   })
 
-  it('should persist candidates to localStorage', () => {
-    const { addToCandidateQueue } = useDiscoveryStore.getState()
+  it('should search papers via API', async () => {
+    mockApi.get.mockResolvedValueOnce({
+      total: 1,
+      papers: [{ paperId: 'p1', title: 'Result' }],
+    })
 
-    addToCandidateQueue(mockCandidate)
+    await useDiscoveryStore.getState().searchPapers('RAG')
 
-    const stored = localStorage.getItem('wonder-discovery-candidates')
-    expect(stored).toBeTruthy()
-
-    const parsed = JSON.parse(stored!)
-    expect(parsed).toHaveLength(1)
-    expect(parsed[0].paperId).toBe('test-123')
-  })
-
-  it('should handle empty localStorage gracefully', () => {
-    localStorage.clear()
-    const { candidateQueue } = useDiscoveryStore.getState()
-
-    expect(candidateQueue).toEqual([])
+    expect(mockApi.get).toHaveBeenCalledWith('/api/discovery/search?q=RAG&limit=20')
+    expect(useDiscoveryStore.getState().searchResults).toHaveLength(1)
   })
 })

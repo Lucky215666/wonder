@@ -6,6 +6,7 @@ interface AnalysisStep {
   status: 'running' | 'done' | 'error' | 'cancelled'
   label: string
   progress?: number
+  progressTotal?: number
   result?: unknown
 }
 
@@ -14,6 +15,7 @@ interface AnalysisState {
   running: boolean
   documentId: string | null
   knowledgeBaseId: string | null
+  result: Record<string, unknown> | null
   apiStatus: 'idle' | 'checking' | 'ok' | 'error'
   apiError: string | null
   abortController: AbortController | null
@@ -22,6 +24,7 @@ interface AnalysisState {
   analyze: (fileName: string, fileType: string, text: string, knowledgeBaseId?: string) => Promise<void>
   cancel: () => void
   reset: () => void
+  setResult: (result: Record<string, unknown>) => void
 }
 
 export const useAnalysisStore = create<AnalysisState>((set, get) => ({
@@ -29,6 +32,7 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => ({
   running: false,
   documentId: null,
   knowledgeBaseId: null,
+  result: null,
   apiStatus: 'idle',
   apiError: null,
   abortController: null,
@@ -66,21 +70,28 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => ({
               return { steps: [...state.steps, step] }
             })
           } else if (event === 'progress') {
-            const { step: stepName, chunkCount } = JSON.parse(data) as { step: string; chunkCount: number }
+            const { step: stepName, chunkCount, total } = JSON.parse(data) as { step: string; chunkCount: number; total: number }
             set((state) => ({
               steps: state.steps.map(s =>
-                s.step === stepName ? { ...s, progress: chunkCount } : s
+                s.step === stepName ? { ...s, progress: chunkCount, progressTotal: total } : s
               ),
             }))
           } else if (event === 'complete') {
-            const { documentId, knowledgeBaseId: kbId } = JSON.parse(data)
-            set({ running: false, documentId, knowledgeBaseId: kbId || null, abortController: null })
+            const { documentId, knowledgeBaseId: kbId, result: analysisResult } = JSON.parse(data)
+            set({ running: false, documentId, knowledgeBaseId: kbId || null, result: analysisResult || null, abortController: null })
           } else if (event === 'cancel') {
             set({ running: false, abortController: null })
+          } else if (event === 'error') {
+            const { error } = JSON.parse(data) as { error: string }
+            set({ running: false, abortController: null, apiStatus: 'error', apiError: error })
           }
         },
         ac.signal,
       )
+      // Fallback: stream ended without a 'complete' event
+      if (get().running) {
+        set({ running: false, abortController: null, apiStatus: 'error', apiError: '分析异常中断，请检查 API 配置后重试' })
+      }
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'AbortError') {
         set((state) => ({
@@ -101,5 +112,6 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => ({
     get().abortController?.abort()
   },
 
-  reset: () => set({ steps: [], running: false, documentId: null, knowledgeBaseId: null, abortController: null }),
+  reset: () => set({ steps: [], running: false, documentId: null, knowledgeBaseId: null, result: null, abortController: null }),
+  setResult: (result) => set({ result }),
 }))

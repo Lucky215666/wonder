@@ -1,20 +1,42 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { Hono } from 'hono'
 import { qaRoutes } from '../../../server/routes/qa'
 
+function createMockStorage(overrides: Record<string, unknown> = {}) {
+  return {
+    getKnowledgeBase: vi.fn(() => undefined),
+    getConfig: vi.fn(() => undefined),
+    createQASession: vi.fn(),
+    getQASession: vi.fn(() => undefined),
+    getQASessions: vi.fn(() => []),
+    updateQASession: vi.fn(),
+    deleteQASession: vi.fn(),
+    addQAMessage: vi.fn(),
+    getQAMessagesBySessionId: vi.fn(() => []),
+    ...overrides,
+  }
+}
+
+function createMockPython(overrides: Record<string, unknown> = {}) {
+  return {
+    post: vi.fn(async () => ({
+      answer: 'answer',
+      source_doc_ids: ['doc-1'],
+      source_chunks: ['chunk'],
+    })),
+    ...overrides,
+  }
+}
+
 describe('qaRoutes', () => {
+  // ── Legacy endpoint tests ─────────────────────────────────────────
+
   it('forwards question and knowledge-base context to Python', async () => {
-    const storage = {
+    const storage = createMockStorage({
       getKnowledgeBase: vi.fn(() => ({ id: 'kb-1', readme: '# KB README' })),
       getConfig: vi.fn((key: string) => key === 'globalProfile' ? 'profile' : undefined),
-    }
-    const python = {
-      post: vi.fn(async () => ({
-        answer: 'answer',
-        source_doc_ids: ['doc-1'],
-        source_chunks: ['chunk'],
-      })),
-    }
+    })
+    const python = createMockPython()
     const app = new Hono()
     app.route('/api/qa', qaRoutes(storage as any, python as any))
 
@@ -36,9 +58,337 @@ describe('qaRoutes', () => {
       question: 'What is RAG?',
       knowledge_base_id: 'kb-1',
       knowledge_base_readme: '# KB README',
-      global_profile: 'profile',
+      global_profile: '',
+      nickname: '',
       top_k_docs: 3,
       top_k_chunks: 5,
     })
+  })
+
+  it('returns empty sources when Python returns no matches', async () => {
+    const storage = createMockStorage()
+    const python = createMockPython({
+      post: vi.fn(async () => ({
+        answer: 'No relevant documents found.',
+        source_doc_ids: [],
+        source_chunks: [],
+      })),
+    })
+    const app = new Hono()
+    app.route('/api/qa', qaRoutes(storage as any, python as any))
+
+    const res = await app.request('/api/qa', {
+      method: 'POST',
+      body: JSON.stringify({ question: 'unrelated query' }),
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.sources).toEqual({ docIds: [], chunks: [] })
+  })
+
+  // ── Session CRUD tests ────────────────────────────────────────────
+
+  it('POST /sessions creates a session', async () => {
+    const storage = createMockStorage({
+      getQASession: vi.fn(() => ({
+        id: 'test-uuid', title: 'My Session', scope_type: 'all',
+        scope_ids: '[]', created_at: '2024-01-01', updated_at: '2024-01-01',
+      })),
+    })
+    const python = createMockPython()
+    const app = new Hono()
+    app.route('/api/qa', qaRoutes(storage as any, python as any))
+
+    const res = await app.request('/api/qa/sessions', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'My Session', scopeType: 'all' }),
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+    expect(res.status).toBe(201)
+    const body = await res.json()
+    expect(body.title).toBe('My Session')
+    expect(storage.createQASession).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'My Session', scope_type: 'all' }),
+    )
+  })
+
+  it('POST /sessions returns 400 when title is empty', async () => {
+    const storage = createMockStorage()
+    const python = createMockPython()
+    const app = new Hono()
+    app.route('/api/qa', qaRoutes(storage as any, python as any))
+
+    const res = await app.request('/api/qa/sessions', {
+      method: 'POST',
+      body: JSON.stringify({ title: '' }),
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+    expect(res.status).toBe(400)
+  })
+
+  it('GET /sessions returns session list', async () => {
+    const storage = createMockStorage({
+      getQASessions: vi.fn(() => [
+        { id: 's1', title: 'Session 1', scope_type: 'all', scope_ids: '[]', created_at: '2024-01-01', updated_at: '2024-01-02' },
+        { id: 's2', title: 'Session 2', scope_type: 'knowledge_base', scope_ids: '["kb1"]', created_at: '2024-01-01', updated_at: '2024-01-01' },
+      ]),
+    })
+    const python = createMockPython()
+    const app = new Hono()
+    app.route('/api/qa', qaRoutes(storage as any, python as any))
+
+    const res = await app.request('/api/qa/sessions')
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body).toHaveLength(2)
+  })
+
+  it('GET /sessions/:id returns session with messages', async () => {
+    const storage = createMockStorage({
+      getQASession: vi.fn(() => ({
+        id: 's1', title: 'Test', scope_type: 'all', scope_ids: '[]',
+        created_at: '2024-01-01', updated_at: '2024-01-01',
+      })),
+      getQAMessagesBySessionId: vi.fn(() => [
+        { id: 'm1', session_id: 's1', role: 'user', content: 'hello', sources: null, created_at: '2024-01-01' },
+      ]),
+    })
+    const python = createMockPython()
+    const app = new Hono()
+    app.route('/api/qa', qaRoutes(storage as any, python as any))
+
+    const res = await app.request('/api/qa/sessions/s1')
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.title).toBe('Test')
+    expect(body.messages).toHaveLength(1)
+  })
+
+  it('GET /sessions/:id returns 404 when not found', async () => {
+    const storage = createMockStorage()
+    const python = createMockPython()
+    const app = new Hono()
+    app.route('/api/qa', qaRoutes(storage as any, python as any))
+
+    const res = await app.request('/api/qa/sessions/nonexistent')
+    expect(res.status).toBe(404)
+  })
+
+  it('DELETE /sessions/:id deletes session', async () => {
+    const storage = createMockStorage({
+      getQASession: vi.fn(() => ({
+        id: 's1', title: 'Test', scope_type: 'all', scope_ids: '[]',
+        created_at: '2024-01-01', updated_at: '2024-01-01',
+      })),
+    })
+    const python = createMockPython()
+    const app = new Hono()
+    app.route('/api/qa', qaRoutes(storage as any, python as any))
+
+    const res = await app.request('/api/qa/sessions/s1', { method: 'DELETE' })
+    expect(res.status).toBe(200)
+    expect(storage.deleteQASession).toHaveBeenCalledWith('s1')
+  })
+
+  it('DELETE /sessions/:id returns 404 when not found', async () => {
+    const storage = createMockStorage()
+    const python = createMockPython()
+    const app = new Hono()
+    app.route('/api/qa', qaRoutes(storage as any, python as any))
+
+    const res = await app.request('/api/qa/sessions/nonexistent', { method: 'DELETE' })
+    expect(res.status).toBe(404)
+  })
+
+  // ── Session message + scope tests ─────────────────────────────────
+
+  it('POST /sessions/:id/messages saves user+assistant messages and returns result', async () => {
+    const storage = createMockStorage({
+      getQASession: vi.fn(() => ({
+        id: 's1', title: 'Test', scope_type: 'all', scope_ids: '[]',
+        created_at: '2024-01-01', updated_at: '2024-01-01',
+      })),
+      getQAMessagesBySessionId: vi.fn(() => []),
+    })
+    const python = createMockPython()
+    const app = new Hono()
+    app.route('/api/qa', qaRoutes(storage as any, python as any))
+
+    const res = await app.request('/api/qa/sessions/s1/messages', {
+      method: 'POST',
+      body: JSON.stringify({ question: 'What is RAG?' }),
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.userMessage.role).toBe('user')
+    expect(body.assistantMessage.role).toBe('assistant')
+    expect(storage.addQAMessage).toHaveBeenCalledTimes(2)
+  })
+
+  it('POST /sessions/:id/messages returns 404 for missing session', async () => {
+    const storage = createMockStorage()
+    const python = createMockPython()
+    const app = new Hono()
+    app.route('/api/qa', qaRoutes(storage as any, python as any))
+
+    const res = await app.request('/api/qa/sessions/nonexistent/messages', {
+      method: 'POST',
+      body: JSON.stringify({ question: 'hello' }),
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+    expect(res.status).toBe(404)
+  })
+
+  it('passes knowledge_base_id when scope_type is knowledge_base', async () => {
+    const storage = createMockStorage({
+      getQASession: vi.fn(() => ({
+        id: 's1', title: 'Test', scope_type: 'knowledge_base', scope_ids: '["kb-1"]',
+        created_at: '2024-01-01', updated_at: '2024-01-01',
+      })),
+      getKnowledgeBase: vi.fn(() => ({ id: 'kb-1', readme: '# KB' })),
+    })
+    const python = createMockPython()
+    const app = new Hono()
+    app.route('/api/qa', qaRoutes(storage as any, python as any))
+
+    await app.request('/api/qa/sessions/s1/messages', {
+      method: 'POST',
+      body: JSON.stringify({ question: 'test' }),
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+    expect(python.post).toHaveBeenCalledWith('/api/knowledge/ask',
+      expect.objectContaining({
+        knowledge_base_id: 'kb-1',
+        knowledge_base_readme: '# KB',
+      }),
+    )
+  })
+
+  it('passes doc_ids when scope_type is document', async () => {
+    const storage = createMockStorage({
+      getQASession: vi.fn(() => ({
+        id: 's1', title: 'Test', scope_type: 'document', scope_ids: '["doc1","doc2"]',
+        created_at: '2024-01-01', updated_at: '2024-01-01',
+      })),
+    })
+    const python = createMockPython()
+    const app = new Hono()
+    app.route('/api/qa', qaRoutes(storage as any, python as any))
+
+    await app.request('/api/qa/sessions/s1/messages', {
+      method: 'POST',
+      body: JSON.stringify({ question: 'test' }),
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+    expect(python.post).toHaveBeenCalledWith('/api/knowledge/ask',
+      expect.objectContaining({
+        doc_ids: ['doc1', 'doc2'],
+      }),
+    )
+  })
+
+  it('skips global_profile when scope_type is knowledge_base', async () => {
+    const storage = createMockStorage({
+      getQASession: vi.fn(() => ({
+        id: 's1', title: 'Test', scope_type: 'knowledge_base', scope_ids: '["kb-1"]',
+        created_at: '2024-01-01', updated_at: '2024-01-01',
+      })),
+      getKnowledgeBase: vi.fn(() => ({ id: 'kb-1', readme: '# KB' })),
+      getConfig: vi.fn((key: string) => key === 'globalProfile' ? 'profile' : undefined),
+    })
+    const python = createMockPython()
+    const app = new Hono()
+    app.route('/api/qa', qaRoutes(storage as any, python as any))
+
+    await app.request('/api/qa/sessions/s1/messages', {
+      method: 'POST',
+      body: JSON.stringify({ question: 'test' }),
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+    const callArg = (python.post as any).mock.calls[0][1]
+    expect(callArg.global_profile).toBe('')
+    expect(callArg.knowledge_base_readme).toBe('# KB')
+  })
+
+  it('sends global_profile when scope_type is not knowledge_base', async () => {
+    const storage = createMockStorage({
+      getQASession: vi.fn(() => ({
+        id: 's1', title: 'Test', scope_type: 'all', scope_ids: '[]',
+        created_at: '2024-01-01', updated_at: '2024-01-01',
+      })),
+      getConfig: vi.fn((key: string) => key === 'globalProfile' ? 'my profile' : undefined),
+    })
+    const python = createMockPython()
+    const app = new Hono()
+    app.route('/api/qa', qaRoutes(storage as any, python as any))
+
+    await app.request('/api/qa/sessions/s1/messages', {
+      method: 'POST',
+      body: JSON.stringify({ question: 'test' }),
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+    const callArg = (python.post as any).mock.calls[0][1]
+    expect(callArg.global_profile).toBe('my profile')
+  })
+
+  it('passes no filter params when scope_type is all', async () => {
+    const storage = createMockStorage({
+      getQASession: vi.fn(() => ({
+        id: 's1', title: 'Test', scope_type: 'all', scope_ids: '[]',
+        created_at: '2024-01-01', updated_at: '2024-01-01',
+      })),
+    })
+    const python = createMockPython()
+    const app = new Hono()
+    app.route('/api/qa', qaRoutes(storage as any, python as any))
+
+    await app.request('/api/qa/sessions/s1/messages', {
+      method: 'POST',
+      body: JSON.stringify({ question: 'test' }),
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+    const callArg = (python.post as any).mock.calls[0][1]
+    expect(callArg.knowledge_base_id).toBeUndefined()
+    expect(callArg.doc_ids).toBeUndefined()
+  })
+
+  it('includes conversation_history in Python request', async () => {
+    const storage = createMockStorage({
+      getQASession: vi.fn(() => ({
+        id: 's1', title: 'Test', scope_type: 'all', scope_ids: '[]',
+        created_at: '2024-01-01', updated_at: '2024-01-01',
+      })),
+      getQAMessagesBySessionId: vi.fn(() => [
+        { id: 'm1', session_id: 's1', role: 'user', content: 'previous q', sources: null, created_at: '2024-01-01' },
+        { id: 'm2', session_id: 's1', role: 'assistant', content: 'previous a', sources: '{}', created_at: '2024-01-01' },
+      ]),
+    })
+    const python = createMockPython()
+    const app = new Hono()
+    app.route('/api/qa', qaRoutes(storage as any, python as any))
+
+    await app.request('/api/qa/sessions/s1/messages', {
+      method: 'POST',
+      body: JSON.stringify({ question: 'follow up' }),
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+    const callArg = (python.post as any).mock.calls[0][1]
+    expect(callArg.conversation_history).toEqual([
+      { role: 'user', content: 'previous q' },
+      { role: 'assistant', content: 'previous a' },
+    ])
   })
 })

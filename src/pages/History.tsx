@@ -34,14 +34,15 @@ export default function History() {
       const parsed = JSON.parse(result)
       const lit = parsed.literature || {}
       return {
+        paperTitle: parsed.paperTitle || parsed.paper_title || null,
         summary: lit.summary || parsed.summary || null,
-        fitScore: lit.fitScore ?? lit.matchScore ?? parsed.knowledgeBaseFitScore ?? parsed.matchScore ?? null,
-        action: lit.action || parsed.recommendedAction || null,
+        fitScore: lit.fitScore ?? lit.matchScore ?? parsed.knowledgeBaseFitScore ?? parsed.matchScore ?? parsed.fit_score ?? null,
+        action: lit.action || parsed.recommendedAction || parsed.recommended_action || null,
         knowledgeBaseId: parsed.knowledgeBaseId || null,
-        fileName: parsed.fileName || null,
+        fileName: parsed.fileName || parsed.file_name || null,
       }
     } catch {
-      return { summary: null, fitScore: null, action: null, knowledgeBaseId: null, fileName: null }
+      return { paperTitle: null, summary: null, fitScore: null, action: null, knowledgeBaseId: null, fileName: null }
     }
   }
 
@@ -69,8 +70,10 @@ export default function History() {
       ) : (
         <div>
           {list.map((item) => {
-            const { summary, fitScore, action, knowledgeBaseId, fileName } = parseResult(item.result)
-            const actionInfo = action ? actionLabels[action] : null
+            const { paperTitle, summary, fitScore, action, knowledgeBaseId, fileName } = parseResult(item.result)
+            // Derive action: if document is in a KB, show "收录" unless AI recommended something else
+            const effectiveAction = action || (knowledgeBaseId ? 'add' : null)
+            const actionInfo = effectiveAction ? actionLabels[effectiveAction] : null
             const kbName = knowledgeBaseId ? kbMap.get(knowledgeBaseId) : null
             return (
               <div
@@ -81,7 +84,7 @@ export default function History() {
                 <FileTextOutlined />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="wonder-history-card__title">
-                    {summary || fileName || `分析记录 ${item.id.slice(0, 8)}`}
+                    {paperTitle || summary || fileName || `分析记录 ${item.id.slice(0, 8)}`}
                   </div>
                   <div className="wonder-history-card__meta" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                     <span>{new Date(item.created_at).toLocaleString('zh-CN')}</span>
@@ -89,8 +92,8 @@ export default function History() {
                       <Tag color="blue"><BookOutlined style={{ marginRight: 4 }} />{kbName}</Tag>
                     )}
                     {fitScore != null && (
-                      <Tag color={fitScore >= 0.7 ? 'green' : fitScore >= 0.4 ? 'orange' : 'default'}>
-                        契合 {Math.round(fitScore * 100)}%
+                      <Tag color={fitScore >= 70 ? 'green' : fitScore >= 40 ? 'orange' : 'default'}>
+                        契合 {Math.round(fitScore)}分
                       </Tag>
                     )}
                     {actionInfo && (

@@ -21,6 +21,7 @@ interface KnowledgeState {
   loadKBDocuments: (kbId: string) => Promise<void>
   addDocumentToKB: (kbId: string, documentId: string, opts?: { subDirection?: string; tags?: string; fitScore?: number; recommendedAction?: string }) => Promise<void>
   removeDocumentFromKB: (kbId: string, documentId: string) => Promise<void>
+  reindexDocument: (kbId: string, documentId: string) => Promise<void>
 
   // README suggestions
   readmeSuggestions: unknown[]
@@ -87,14 +88,25 @@ export const useKnowledgeStore = create<KnowledgeState>((set, get) => ({
   },
   addDocumentToKB: async (kbId, documentId, opts) => {
     await api.post(`/api/knowledge-bases/${kbId}/documents`, { documentId, ...opts })
-    // Reload documents
     get().loadKBDocuments(kbId)
+    set(state => ({
+      knowledgeBases: state.knowledgeBases.map(kb =>
+        kb.id === kbId ? { ...kb, documentCount: (kb.documentCount ?? 0) + 1 } : kb
+      ),
+    }))
   },
   removeDocumentFromKB: async (kbId, documentId) => {
     await api.delete(`/api/knowledge-bases/${kbId}/documents/${documentId}`)
     set(state => ({
       kbDocuments: (state.kbDocuments as { id: string }[]).filter(d => d.id !== documentId),
+      knowledgeBases: state.knowledgeBases.map(kb =>
+        kb.id === kbId ? { ...kb, documentCount: Math.max(0, (kb.documentCount ?? 1) - 1) } : kb
+      ),
     }))
+  },
+  reindexDocument: async (kbId, documentId) => {
+    await api.post(`/api/knowledge-bases/${kbId}/documents/${documentId}/reindex`)
+    get().loadKBDocuments(kbId)
   },
 
   // README suggestions
@@ -108,6 +120,14 @@ export const useKnowledgeStore = create<KnowledgeState>((set, get) => ({
     set(state => ({
       readmeSuggestions: (state.readmeSuggestions as { id: string }[]).filter(s => s.id !== suggestionId),
     }))
+    // Reload KB to reflect updated README
+    const kbId = get().selectedKBId
+    if (kbId) {
+      const kb = await api.get<KnowledgeBase>(`/api/knowledge-bases/${kbId}`)
+      set(state => ({
+        knowledgeBases: state.knowledgeBases.map(k => k.id === kbId ? { ...k, ...kb } : k),
+      }))
+    }
   },
   rejectSuggestion: async (suggestionId) => {
     await api.post(`/api/knowledge-bases/readme-suggestions/${suggestionId}/reject`)

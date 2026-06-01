@@ -28,6 +28,7 @@ import QA from './pages/QA'
 import Discovery from './pages/Discovery'
 import CitationNetwork from './pages/CitationNetwork'
 import Knowledge from './pages/Knowledge'
+import DocumentDetail from './pages/DocumentDetail'
 import History from './pages/History'
 import HistoryDetail from './pages/HistoryDetail'
 import SettingsModal from './components/SettingsModal'
@@ -193,6 +194,7 @@ export default function App() {
               <Route path="/knowledge" element={<Knowledge />} />
               <Route path="/history" element={<History />} />
               <Route path="/history/:id" element={<HistoryDetail />} />
+              <Route path="/document/:id" element={<DocumentDetail />} />
             </Routes>
           </Content>
         </Layout>

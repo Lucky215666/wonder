@@ -1,5 +1,5 @@
 export type ChatProvider = 'openai_compatible' | 'anthropic' | 'minimax' | 'custom_openai_compatible'
-export type EmbeddingProvider = 'openai_compatible' | 'custom_openai_compatible' | 'minimax'
+export type EmbeddingProvider = 'openai_compatible' | 'custom_openai_compatible' | 'minimax' | 'local'
 
 export interface ChatConfig {
   provider: ChatProvider

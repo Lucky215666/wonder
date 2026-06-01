@@ -4,6 +4,7 @@ from typing import Any
 
 from .anthropic import AnthropicProvider
 from .base import EmbeddingProvider, ProviderConfigError
+from .local_embedding import LocalEmbeddingProvider
 from .openai_compatible import OpenAICompatibleProvider
 
 
@@ -11,6 +12,7 @@ _PROVIDER_MAP: dict[str, type] = {
     "anthropic": AnthropicProvider,
     "openai_compatible": OpenAICompatibleProvider,
     "OpenAI": OpenAICompatibleProvider,
+    "local": LocalEmbeddingProvider,
 }
 
 
@@ -52,8 +54,10 @@ def create_embedding_provider(config: dict[str, Any]) -> Any:
     api_key = cfg["api_key"]
     base_url = cfg["base_url"]
 
-    if not api_key:
-        raise ProviderConfigError(f"API key is required for provider '{provider_name}'.")
+    # Local provider does not require API key
+    if provider_name != "local":
+        if not api_key:
+            raise ProviderConfigError(f"API key is required for provider '{provider_name}'.")
 
     cls = _PROVIDER_MAP.get(provider_name)
     if cls is None:
@@ -61,4 +65,10 @@ def create_embedding_provider(config: dict[str, Any]) -> Any:
         raise ProviderConfigError(
             f"Unknown provider '{provider_name}'. Known providers: {known}."
         )
+
+    # Local provider uses model_name as constructor arg
+    if provider_name == "local":
+        model_name = cfg.get("model", "BAAI/bge-small-zh-v1.5")
+        return cls(model_name=model_name)
+
     return cls(api_key=api_key, base_url=base_url)

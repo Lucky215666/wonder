@@ -10,7 +10,11 @@ CREATE TABLE IF NOT EXISTS documents (
   writing_materials TEXT,
   todo_list TEXT,
   tags TEXT,
-  match_score REAL
+  match_score REAL,
+  lifecycle_status TEXT DEFAULT 'analyzed',
+  index_status TEXT DEFAULT 'not_indexed',
+  index_error TEXT,
+  indexed_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS chunks (
@@ -64,8 +68,102 @@ CREATE TABLE IF NOT EXISTS readme_suggestions (
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS discovery_candidates (
+  id TEXT PRIMARY KEY,
+  paper_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  abstract TEXT,
+  year INTEGER,
+  citation_count INTEGER DEFAULT 0,
+  influential_citation_count INTEGER DEFAULT 0,
+  venue TEXT,
+  authors TEXT,
+  url TEXT,
+  source_query TEXT,
+  discovery_priority_score REAL DEFAULT 0,
+  discovery_reason TEXT,
+  state TEXT NOT NULL DEFAULT 'saved',
+  knowledge_base_id TEXT REFERENCES knowledge_bases(id) ON DELETE SET NULL,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS batch_runs (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  knowledge_base_id TEXT REFERENCES knowledge_bases(id) ON DELETE SET NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  completed_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS batch_items (
+  id TEXT PRIMARY KEY,
+  batch_run_id TEXT NOT NULL REFERENCES batch_runs(id) ON DELETE CASCADE,
+  file_name TEXT NOT NULL,
+  file_type TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  document_id TEXT REFERENCES documents(id) ON DELETE SET NULL,
+  history_id TEXT REFERENCES analysis_history(id) ON DELETE SET NULL,
+  error TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  completed_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_discovery_candidates_kb_id ON discovery_candidates(knowledge_base_id);
+CREATE INDEX IF NOT EXISTS idx_discovery_candidates_state ON discovery_candidates(state);
+
+CREATE INDEX IF NOT EXISTS idx_batch_items_run_id ON batch_items(batch_run_id);
+CREATE INDEX IF NOT EXISTS idx_batch_runs_created_at ON batch_runs(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS qa_sessions (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  scope_type TEXT NOT NULL DEFAULT 'knowledge_base',
+  scope_ids TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS qa_messages (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES qa_sessions(id) ON DELETE CASCADE,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  sources TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_qa_messages_session_id ON qa_messages(session_id);
+CREATE INDEX IF NOT EXISTS idx_qa_sessions_updated_at ON qa_sessions(updated_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_chunks_document_id ON chunks(document_id);
 CREATE INDEX IF NOT EXISTS idx_analysis_history_created_at ON analysis_history(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_dkb_kb_id ON document_knowledge_bases(knowledge_base_id);
 CREATE INDEX IF NOT EXISTS idx_dkb_doc_id ON document_knowledge_bases(document_id);
 CREATE INDEX IF NOT EXISTS idx_readme_suggestions_kb_id ON readme_suggestions(knowledge_base_id);
+
+CREATE TABLE IF NOT EXISTS paper_nodes (
+  paper_id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  abstract TEXT,
+  year INTEGER,
+  citation_count INTEGER DEFAULT 0,
+  venue TEXT,
+  authors TEXT,
+  url TEXT,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS paper_edges (
+  id TEXT PRIMARY KEY,
+  from_paper_id TEXT NOT NULL,
+  to_paper_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  source_seed_paper_id TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_paper_edges_from ON paper_edges(from_paper_id);
+CREATE INDEX IF NOT EXISTS idx_paper_edges_to ON paper_edges(to_paper_id);
+CREATE INDEX IF NOT EXISTS idx_paper_edges_seed ON paper_edges(source_seed_paper_id);

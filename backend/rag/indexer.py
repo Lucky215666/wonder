@@ -58,22 +58,7 @@ class DocumentIndexer:
             documents=documents,
         )
 
-        self.storage.insert_document(
-            doc_id=doc_id,
-            file_name=file_name,
-            file_path=file_path,
-            summary=summary,
-            reading_card=analysis_result.get("reading_card", ""),
-            relation_analysis=analysis_result.get("relation_analysis", ""),
-            writing_materials=analysis_result.get("writing_materials", ""),
-            todo_list=analysis_result.get("todo_list", ""),
-            chunk_count=len(chunks),
-            total_tokens=sum(len(c) for c in chunks) // 2,
-        )
-
         return doc_id
 
     def delete_document(self, doc_id: str, knowledge_base_id: str | None = None):
         self.storage.delete_from_collection(doc_id, knowledge_base_id)
-        if knowledge_base_id is None:
-            self.storage.delete_document(doc_id)

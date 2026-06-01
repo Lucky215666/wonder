@@ -61,6 +61,33 @@ def test_knowledge_requests_are_kb_scoped():
     assert qa_req.knowledge_base_id == "kb-1"
 
 
+def test_knowledge_index_request_preserves_analysis_result():
+    """Node → Python 索引载荷合约：analysis_result 的四个子字段必须被保留。"""
+    index_req = KnowledgeIndexRequest(
+        doc_id="doc-uuid-1",
+        knowledge_base_id="kb-1",
+        file_name="paper.pdf",
+        chunks=["chunk one", "chunk two"],
+        summary="This paper proposes...",
+        analysis_result={
+            "reading_card": "# Reading Card\nKey findings...",
+            "relation_analysis": "Supplements existing work on X",
+            "writing_materials": "Usable claims: ...",
+            "todo_list": "- Reproduce experiment Y",
+        },
+        tags=["rag", "nlp"],
+        embedding_config=None,
+    )
+
+    assert index_req.knowledge_base_id == "kb-1"
+    assert index_req.chunks == ["chunk one", "chunk two"]
+    assert index_req.analysis_result["reading_card"] == "# Reading Card\nKey findings..."
+    assert index_req.analysis_result["relation_analysis"] == "Supplements existing work on X"
+    assert index_req.analysis_result["writing_materials"] == "Usable claims: ..."
+    assert index_req.analysis_result["todo_list"] == "- Reproduce experiment Y"
+    assert index_req.embedding_config is None
+
+
 def test_health_alias_available():
     client = TestClient(app)
     res = client.get("/health")

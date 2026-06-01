@@ -3,10 +3,8 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import { Card, Typography, Spin, Tag, Space, Button, Empty, message, Divider } from 'antd'
 import { LinkOutlined, ArrowLeftOutlined, BookOutlined, CalendarOutlined, GlobalOutlined, SaveOutlined, StopOutlined } from '@ant-design/icons'
 import { buildCitationGraph, type GraphNode, type GraphEdge } from '../lib/discovery/citation-graph'
-import { getPaper } from '../lib/discovery/semantic-scholar'
 import { calculateDiscoveryPriorityScore } from '../lib/discovery/ranking'
 import { useDiscoveryStore } from '../stores/discovery'
-import type { S2Paper } from '../lib/discovery/types'
 import type { DiscoveryCandidate } from '../types/discovery'
 
 export default function CitationNetwork() {
@@ -15,24 +13,22 @@ export default function CitationNetwork() {
   const paperId = searchParams.get('id')
 
   const [loading, setLoading] = useState(false)
-  const [seedPaper, setSeedPaper] = useState<S2Paper | null>(null)
+  const [seedPaper, setSeedPaper] = useState<GraphNode | null>(null)
   const [nodes, setNodes] = useState<GraphNode[]>([])
   const [edges, setEdges] = useState<GraphEdge[]>([])
   const [selectedRef, setSelectedRef] = useState<GraphNode | null>(null)
 
-  const { discoveryContext, addToCandidateQueue, isInQueue, getCandidate } = useDiscoveryStore()
+  const { discoveryContext, saveCandidate, isInQueue, getCandidate } = useDiscoveryStore()
 
   useEffect(() => {
     if (!paperId) return
     setLoading(true)
     setSelectedRef(null)
 
-    Promise.all([
-      getPaper(paperId),
-      buildCitationGraph(paperId, 1, 15),
-    ])
-      .then(([paper, graph]) => {
-        setSeedPaper(paper)
+    buildCitationGraph(paperId, 1, 15)
+      .then(graph => {
+        const seed = graph.nodes.find(n => n.paperId === paperId) ?? null
+        setSeedPaper(seed)
         setNodes(graph.nodes)
         setEdges(graph.edges)
       })
@@ -58,17 +54,13 @@ export default function CitationNetwork() {
     if (!discoveryContext || discoveryContext.keywords.length === 0) {
       return { score: 0, reason: '无上下文' }
     }
-    const paper: S2Paper = {
-      paperId: node.paperId,
+    return calculateDiscoveryPriorityScore({
       title: node.title,
-      abstract: null,
+      abstract: node.abstract ?? null,
       year: node.year,
       citationCount: node.citationCount,
-      venue: '',
-      authors: [],
-      url: '',
-    }
-    return calculateDiscoveryPriorityScore(paper, discoveryContext.keywords)
+      venue: node.venue,
+    }, discoveryContext.keywords)
   }
 
   const handleSaveCandidate = (node: GraphNode, type: 'reference' | 'citation') => {
@@ -78,19 +70,21 @@ export default function CitationNetwork() {
     }
 
     const ranking = getScoreAndReason(node)
-    const candidate: DiscoveryCandidate = {
+    const candidate: Omit<DiscoveryCandidate, 'id'> = {
       paperId: node.paperId,
       title: node.title,
-      abstract: null,
+      abstract: node.abstract ?? null,
       year: node.year,
       citationCount: node.citationCount,
-      authors: [],
+      influentialCitationCount: node.influentialCitationCount ?? 0,
+      venue: node.venue,
+      authors: node.authors ?? [],
       sourceQuery: type === 'reference' ? 'citation-reference' : 'citation-citing',
       discoveryPriorityScore: ranking.score,
       discoveryReason: ranking.reason,
       state: 'saved',
     }
-    addToCandidateQueue(candidate)
+    saveCandidate(candidate)
     message.success('已保存到候选队列')
   }
 
@@ -101,19 +95,21 @@ export default function CitationNetwork() {
     }
 
     const ranking = getScoreAndReason(node)
-    const candidate: DiscoveryCandidate = {
+    const candidate: Omit<DiscoveryCandidate, 'id'> = {
       paperId: node.paperId,
       title: node.title,
-      abstract: null,
+      abstract: node.abstract ?? null,
       year: node.year,
       citationCount: node.citationCount,
-      authors: [],
+      influentialCitationCount: node.influentialCitationCount ?? 0,
+      venue: node.venue,
+      authors: node.authors ?? [],
       sourceQuery: type === 'reference' ? 'citation-reference' : 'citation-citing',
       discoveryPriorityScore: ranking.score,
       discoveryReason: ranking.reason,
       state: 'ignored',
     }
-    addToCandidateQueue(candidate)
+    saveCandidate(candidate)
     message.info('已忽略该论文')
   }
 

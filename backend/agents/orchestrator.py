@@ -1,5 +1,7 @@
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Generator, Tuple
 from enum import Enum
+from concurrent.futures import ThreadPoolExecutor
+import re as _re
 from backend.agents.base import BaseAgent
 from backend.agents.literature import LiteratureParserAgent
 from backend.agents.relation import ProjectRelationAgent
@@ -13,6 +15,16 @@ class TaskType(str, Enum):
     ASK_QUESTION = "ask_question"
     GENERATE_WRITING = "generate_writing"
     GENERATE_TODO = "generate_todo"
+
+def _extract_paper_title(reading_card: str) -> Tuple[str, str]:
+    """Extract paper title from reading card. Returns (title, cleaned_reading_card)."""
+    match = _re.match(r'^Paper\s*Title:\s*(.+?)\s*\n', reading_card)
+    if match:
+        title = match.group(1).strip()
+        cleaned = reading_card[match.end():].lstrip('\n')
+        return title, cleaned
+    return '', reading_card
+
 
 class Orchestrator:
     """中央调度器，根据任务类型路由到对应 Agent"""
@@ -37,43 +49,151 @@ class Orchestrator:
         elif task == TaskType.GENERATE_TODO:
             return self._generate_todo(**kwargs)
 
+    @staticmethod
+    def _extract_relation_text(relation: Any) -> str:
+        """Extract markdown analysis text from relation result (dict or legacy string)."""
+        if isinstance(relation, dict):
+            return relation.get("analysis", "")
+        return relation
+
     def _analyze_document(self, text_chunks: List[str], research_context: str,
                           writing_style: str, progress_callback=None) -> Dict[str, Any]:
-        """文档分析流程：串联调用各 Agent"""
-        # 1. 文献解析
-        reading_card = self.agents["literature"].run(
+        """文档分析流程：chunk 并行提取，后续 agent 串行"""
+        # 1. 文献解析（chunk 并行提取）
+        raw_reading_card = self.agents["literature"].run(
             text_chunks=text_chunks,
             progress_callback=progress_callback
         )
+        paper_title, reading_card = _extract_paper_title(raw_reading_card)
 
         # 2. 项目关联
         relation = self.agents["relation"].run(
             reading_card=reading_card,
             user_research_context=research_context
         )
+        relation_text = self._extract_relation_text(relation)
 
-        # 3. 写作辅助
-        writing = self.agents["writing"].run(
-            reading_card=reading_card,
-            relation_analysis=relation,
-            writing_style=writing_style
-        )
+        # 3. 写作 + 任务规划并行（都依赖 reading_card + relation_text）
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            future_writing = executor.submit(
+                self.agents["writing"].run,
+                reading_card=reading_card,
+                relation_analysis=relation_text,
+                writing_style=writing_style,
+            )
+            future_todo = executor.submit(
+                self.agents["todo"].run,
+                reading_card=reading_card,
+                relation_analysis=relation_text,
+            )
+            writing_result = future_writing.result()
+            todo = future_todo.result()
 
-        # 4. 任务规划
-        todo = self.agents["todo"].run(
-            reading_card=reading_card,
-            relation_analysis=relation
-        )
+        # Writing agent now returns dict with writing_assets + writing_materials
+        if isinstance(writing_result, dict):
+            writing_text = writing_result.get("writing_materials", "")
+            writing_assets = writing_result.get("writing_assets", {})
+        else:
+            writing_text = writing_result
+            writing_assets = {}
 
-        return {
+        result = {
+            "paper_title": paper_title,
             "reading_card": reading_card,
-            "relation_analysis": relation,
-            "writing_materials": writing,
-            "todo_list": todo
+            "relation_analysis": relation_text if isinstance(relation, dict) else relation,
+            "writing_materials": writing_text,
+            "writing_assets": writing_assets,
+            "todo_list": todo,
         }
+        if isinstance(relation, dict):
+            result["fit_score"] = relation.get("fit_score")
+            result["fit_reason"] = relation.get("fit_reason", "")
+            result["relation_type"] = relation.get("relation_type", "unrelated")
+            result["recommended_action"] = relation.get("recommended_action", "")
+            result["suggested_placement"] = relation.get("suggested_placement", {})
+            result["novelty_for_kb"] = relation.get("novelty_for_kb", "")
+            result["readme_suggestions"] = relation.get("readme_suggestions", [])
+        return result
+
+    def run_streaming(self, task_type: str, **kwargs):
+        """流式版本：chunk 并行提取，writing + todo 并行执行"""
+        task = TaskType(task_type)
+        if task != TaskType.ANALYZE_DOCUMENT:
+            raise ValueError("Streaming only supports analyze_document")
+
+        text_chunks = kwargs["text_chunks"]
+        research_context = kwargs.get("research_context", "")
+        writing_style = kwargs.get("writing_style", "")
+        progress_callback = kwargs.get("progress_callback")
+
+        # 1. 文献解析（chunk 并行提取）
+        yield {"step": "literature", "status": "running"}
+        raw_reading_card = self.agents["literature"].run(
+            text_chunks=text_chunks,
+            progress_callback=progress_callback,
+        )
+        paper_title, reading_card = _extract_paper_title(raw_reading_card)
+        yield {"step": "literature", "status": "done", "data": reading_card}
+        if paper_title:
+            yield {"step": "literature_meta", "data": {"paper_title": paper_title}}
+
+        # 2. 关联分析
+        yield {"step": "relation", "status": "running"}
+        relation = self.agents["relation"].run(
+            reading_card=reading_card,
+            user_research_context=research_context,
+        )
+        relation_text = self._extract_relation_text(relation)
+        yield {"step": "relation", "status": "done", "data": relation_text}
+
+        # 3. 写作 + 待办并行
+        yield {"step": "writing", "status": "running"}
+        yield {"step": "todo", "status": "running"}
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            future_writing = executor.submit(
+                self.agents["writing"].run,
+                reading_card=reading_card,
+                relation_analysis=relation_text,
+                writing_style=writing_style,
+            )
+            future_todo = executor.submit(
+                self.agents["todo"].run,
+                reading_card=reading_card,
+                relation_analysis=relation_text,
+            )
+            writing_result = future_writing.result()
+            todo = future_todo.result()
+
+        # Writing agent now returns dict with writing_assets + writing_materials
+        if isinstance(writing_result, dict):
+            writing_text = writing_result.get("writing_materials", "")
+            writing_assets = writing_result.get("writing_assets", {})
+        else:
+            writing_text = writing_result
+            writing_assets = {}
+
+        yield {"step": "writing", "status": "done", "data": writing_text}
+        yield {"step": "todo", "status": "done", "data": todo}
+
+        # Emit structured relation metadata as a separate event
+        if isinstance(relation, dict):
+            yield {"step": "relation_meta", "status": "done", "data": {
+                "fit_score": relation.get("fit_score"),
+                "fit_reason": relation.get("fit_reason", ""),
+                "relation_type": relation.get("relation_type", "unrelated"),
+                "recommended_action": relation.get("recommended_action", ""),
+                "suggested_placement": relation.get("suggested_placement", {}),
+                "novelty_for_kb": relation.get("novelty_for_kb", ""),
+                "readme_suggestions": relation.get("readme_suggestions", []),
+            }}
+
+        # Emit structured writing assets as a separate event
+        if writing_assets:
+            yield {"step": "writing_meta", "status": "done", "data": writing_assets}
 
     def _ask_question(self, question: str, knowledge_base_id: Optional[str] = None,
                       knowledge_base_readme: str = "", global_profile: str = "",
+                      nickname: str = "",
                       doc_ids: Optional[List[str]] = None,
                       conversation_history: Optional[List[Dict]] = None,
                       top_k_docs: int = 3, top_k_chunks: int = 5) -> Dict[str, Any]:
@@ -88,18 +208,20 @@ class Orchestrator:
             top_k_chunks=top_k_chunks,
         )
 
-        context_parts = [
-            f"[Global Profile]\n{global_profile}".strip(),
-            f"[Knowledge Base README]\n{knowledge_base_readme}".strip(),
-            retrieval.context,
-        ]
+        context_parts = []
+        if global_profile.strip():
+            context_parts.append(f"[Global Profile]\n{global_profile}")
+        if knowledge_base_readme.strip():
+            context_parts.append(f"[Knowledge Base README]\n{knowledge_base_readme}")
+        context_parts.append(retrieval.context)
         document_context = "\n\n---\n\n".join(part for part in context_parts if part)
 
         answer = self.agents["qa"].run(
             document_context=document_context,
             analysis_report="",
             question=question,
-            conversation_history=conversation_history or []
+            conversation_history=conversation_history or [],
+            user_name=nickname,
         )
 
         return {

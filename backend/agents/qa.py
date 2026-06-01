@@ -18,9 +18,14 @@ Requirements:
         analysis_report: str,
         question: str,
         conversation_history: Optional[List[Dict[str, str]]] = None,
+        user_name: str = "",
     ) -> str:
         max_context_chars = 10000
         context = document_context[:max_context_chars]
+
+        system_prompt = self.SYSTEM_PROMPT
+        if user_name:
+            system_prompt += f"\nThe user's name is {user_name}. Address them by name when appropriate."
 
         history_text = ""
         if conversation_history:
@@ -43,7 +48,7 @@ User question:
 Answer the user's question. When necessary, indicate which type of information from the materials your answer is based on.
 """
         return self.call_llm(
-            system_prompt=self.SYSTEM_PROMPT,
+            system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=0.2,
             max_tokens=2500,

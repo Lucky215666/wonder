@@ -18,6 +18,15 @@ EMBEDDING_PRESETS = {
         "models": ["text-embedding-003"],
         "dimensions": {"text-embedding-003": 1536},
     },
+    "SiliconFlow": {
+        "base_url": "https://api.siliconflow.cn/v1",
+        "models": ["BAAI/bge-large-zh-v1.5", "BAAI/bge-m3"],
+        "dimensions": {"BAAI/bge-large-zh-v1.5": 1024, "BAAI/bge-m3": 1024},
+    },
+    "local": {
+        "models": ["BAAI/bge-small-zh-v1.5", "BAAI/bge-large-zh-v1.5"],
+        "dimensions": {"BAAI/bge-small-zh-v1.5": 512, "BAAI/bge-large-zh-v1.5": 1024},
+    },
 }
 
 

@@ -8,28 +8,41 @@ function createSSEApp() {
     getDocumentsByKB: vi.fn(() => []),
     getConfig: vi.fn((key: string) => key === 'globalProfile' ? 'profile' : undefined),
     upsertDocument: vi.fn(),
-    addDocumentToKB: vi.fn(),
+    insertChunk: vi.fn(),
     addReadmeSuggestion: vi.fn(),
     addHistory: vi.fn(),
+    updateDocumentLifecycle: vi.fn(),
+    updateDocumentIndexStatus: vi.fn(),
   }
   const python = {
-    post: vi.fn(async () => ({
-      doc_id: 'doc-1',
-      file_name: 'test.pdf',
-      status: 'ok',
-      failed_agents: [],
-      reading_card: '# Reading Card\nKey findings...',
-      relation_analysis: 'Relation analysis text',
-      writing_materials: 'Writing materials text',
-      todo_list: 'Todo list text',
-      summary: 'Summary text',
-      tags: ['ai', 'nlp'],
-      fit_score: 85,
-      placement: 'NLP',
-      recommended_action: 'add',
-      readme_suggestions: [{ section: 'Core Keywords', suggestion: 'Add NLP', reason: 'relevant' }],
-      source_chunks: ['chunk1'],
-    })),
+    post: vi.fn(async () => ({ doc_id: 'doc-1', message: 'Document indexed successfully' })),
+
+    postSSE: vi.fn(async function* () {
+      yield { event: 'agent_done', data: JSON.stringify({ step: 'literature' }) }
+      yield { event: 'agent_done', data: JSON.stringify({ step: 'relation' }) }
+      yield { event: 'agent_done', data: JSON.stringify({ step: 'writing' }) }
+      yield { event: 'agent_done', data: JSON.stringify({ step: 'todo' }) }
+      yield {
+        event: 'complete',
+        data: JSON.stringify({
+          doc_id: 'doc-1',
+          file_name: 'test.pdf',
+          status: 'ok',
+          failed_agents: [],
+          reading_card: '# Reading Card\nKey findings...',
+          relation_analysis: 'Relation analysis text',
+          writing_materials: 'Writing materials text',
+          todo_list: 'Todo list text',
+          summary: 'Summary text',
+          tags: ['ai', 'nlp'],
+          fit_score: 85,
+          placement: 'NLP',
+          recommended_action: 'add',
+          readme_suggestions: [{ section: 'Core Keywords', suggestion: 'Add NLP', reason: 'relevant' }],
+          source_chunks: ['chunk1'],
+        }),
+      }
+    }),
   }
   const app = new Hono()
   app.route('/api/analysis', analysisRoutes(storage as any, python as any))
@@ -53,14 +66,14 @@ describe('analysisRoutes', () => {
     // Consume the SSE stream fully so async operations complete
     await res.text()
 
-    expect(python.post).toHaveBeenCalledWith('/api/analysis/gateway', expect.objectContaining({
+    expect(python.postSSE).toHaveBeenCalledWith('/api/analysis/gateway', expect.objectContaining({
       doc_id: expect.any(String),
       file_name: 'test.pdf',
       file_type: 'pdf',
       text: 'Sample document text',
       max_chars: 7000,
       overlap: 500,
-    }))
+    }), expect.any(AbortSignal))
   })
 
   it('persists document and history after successful analysis', async () => {
@@ -87,7 +100,7 @@ describe('analysisRoutes', () => {
     }))
   })
 
-  it('links document to knowledge base when knowledgeBaseId provided', async () => {
+  it('saves readme suggestions when knowledgeBaseId provided', async () => {
     const { app, storage } = createSSEApp()
 
     const res = await app.request('/api/analysis/single', {
@@ -102,14 +115,30 @@ describe('analysisRoutes', () => {
     })
     await res.text()
 
-    expect(storage.addDocumentToKB).toHaveBeenCalledWith(expect.objectContaining({
-      knowledgeBaseId: 'kb-1',
-      fitScore: 85,
-      recommendedAction: 'add',
-    }))
     expect(storage.addReadmeSuggestion).toHaveBeenCalledWith(expect.objectContaining({
       knowledgeBaseId: 'kb-1',
       section: 'Core Keywords',
+    }))
+  })
+
+  it('stores source chunks after analysis', async () => {
+    const { app, storage } = createSSEApp()
+
+    const res = await app.request('/api/analysis/single', {
+      method: 'POST',
+      body: JSON.stringify({
+        fileName: 'test.pdf',
+        fileType: 'pdf',
+        text: 'Text.',
+      }),
+      headers: { 'Content-Type': 'application/json' },
+    })
+    await res.text()
+
+    expect(storage.insertChunk).toHaveBeenCalledWith(expect.objectContaining({
+      documentId: expect.any(String),
+      content: 'chunk1',
+      chunkIndex: 0,
     }))
   })
 

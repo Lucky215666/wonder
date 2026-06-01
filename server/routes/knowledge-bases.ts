@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { StorageService } from '../services/storage'
+import { PythonBackendClient } from '../services/python-backend'
 import { randomUUID } from 'crypto'
 
 const DEFAULT_README = `# 知识库 README
@@ -19,7 +20,7 @@ const DEFAULT_README = `# 知识库 README
 ## 阅读与分析偏好
 `
 
-export function knowledgeBaseRoutes(storage: StorageService) {
+export function knowledgeBaseRoutes(storage: StorageService, python: PythonBackendClient) {
   const app = new Hono()
 
   // List all knowledge bases
@@ -97,6 +98,38 @@ export function knowledgeBaseRoutes(storage: StorageService) {
       fitScore: body.fitScore,
       recommendedAction: body.recommendedAction,
     })
+
+    // Trigger vector indexing in background
+    const docId = body.documentId
+    const doc = storage.getDocument(docId)
+    if (doc) {
+      const chunks = storage.getChunksByDocument(docId)
+      const chunkTexts = chunks.map(ch => ch.content)
+      storage.updateDocumentLifecycle(docId, 'indexing')
+      python.post('/api/knowledge/documents/gateway', {
+        doc_id: docId,
+        knowledge_base_id: kbId,
+        file_name: doc.file_name,
+        file_path: doc.file_path,
+        chunks: chunkTexts,
+        summary: doc.summary ?? '',
+        analysis_result: {
+          reading_card: doc.reading_card ?? '',
+          relation_analysis: doc.relation_analysis ?? '',
+          writing_materials: doc.writing_materials ?? '',
+          todo_list: doc.todo_list ?? '',
+        },
+        tags: doc.tags ? doc.tags.split(',').map(t => t.trim()).filter(Boolean) : [],
+      }).then(() => {
+        storage.updateDocumentLifecycle(docId, 'indexed')
+        storage.updateDocumentIndexStatus(docId, 'indexed', null)
+      }).catch((err: unknown) => {
+        const errorMsg = err instanceof Error ? err.message : String(err)
+        storage.updateDocumentLifecycle(docId, 'index_failed')
+        storage.updateDocumentIndexStatus(docId, 'index_failed', errorMsg)
+      })
+    }
+
     return c.json({ success: true })
   })
 
@@ -116,10 +149,7 @@ export function knowledgeBaseRoutes(storage: StorageService) {
   // Accept a readme suggestion (apply it to the README)
   app.post('/readme-suggestions/:suggestionId/accept', (c) => {
     const suggestionId = c.req.param('suggestionId')
-    const suggestions = storage.getReadmeSuggestions('')
-    // Find the suggestion by scanning (small dataset, acceptable)
-    const all = storage.getReadmeSuggestions('', undefined)
-    const suggestion = all.find(s => s.id === suggestionId)
+    const suggestion = storage.getReadmeSuggestionById(suggestionId)
     if (!suggestion) return c.json({ error: '建议不存在' }, 404)
 
     const kb = storage.getKnowledgeBase(suggestion.knowledge_base_id)
@@ -142,6 +172,45 @@ export function knowledgeBaseRoutes(storage: StorageService) {
   app.post('/readme-suggestions/:suggestionId/reject', (c) => {
     storage.updateReadmeSuggestionStatus(c.req.param('suggestionId'), 'rejected')
     return c.json({ success: true })
+  })
+
+  // Reindex a document into a knowledge base's vector store
+  app.post('/:kbId/documents/:docId/reindex', async (c) => {
+    const kbId = c.req.param('kbId')
+    const docId = c.req.param('docId')
+
+    const doc = storage.getDocument(docId)
+    if (!doc) return c.json({ error: '文档不存在' }, 404)
+
+    const chunks = storage.getChunksByDocument(docId)
+    const chunkTexts = chunks.map(ch => ch.content)
+
+    storage.updateDocumentLifecycle(docId, 'indexing')
+    try {
+      await python.post('/api/knowledge/documents/gateway', {
+        doc_id: docId,
+        knowledge_base_id: kbId,
+        file_name: doc.file_name,
+        file_path: doc.file_path,
+        chunks: chunkTexts,
+        summary: doc.summary ?? '',
+        analysis_result: {
+          reading_card: doc.reading_card ?? '',
+          relation_analysis: doc.relation_analysis ?? '',
+          writing_materials: doc.writing_materials ?? '',
+          todo_list: doc.todo_list ?? '',
+        },
+        tags: doc.tags ? doc.tags.split(',').map(t => t.trim()).filter(Boolean) : [],
+      })
+      storage.updateDocumentLifecycle(docId, 'indexed')
+      storage.updateDocumentIndexStatus(docId, 'indexed', null)
+      return c.json({ success: true })
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err)
+      storage.updateDocumentLifecycle(docId, 'index_failed')
+      storage.updateDocumentIndexStatus(docId, 'index_failed', errorMsg)
+      return c.json({ error: errorMsg }, 500)
+    }
   })
 
   return app

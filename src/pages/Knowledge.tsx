@@ -1,19 +1,25 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Typography, Button, Card, Empty, Modal, Form, Input, Popconfirm, message, List, Tag, Spin } from 'antd'
 import {
   PlusOutlined, BookOutlined, DeleteOutlined, EditOutlined,
   FileTextOutlined, SettingOutlined, ArrowLeftOutlined,
+  CheckCircleOutlined, SyncOutlined, CloseCircleOutlined, MinusCircleOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons'
 import { useKnowledgeStore } from '../stores/knowledge'
 import ApiGuard from '../components/ApiGuard'
 
 export default function Knowledge() {
+  const navigate = useNavigate()
   const {
     knowledgeBases, kbLoading, loadKnowledgeBases,
     createKnowledgeBase, updateKnowledgeBase, deleteKnowledgeBase,
     selectedKBId, selectKB,
     kbDocuments, kbDocsLoading, loadKBDocuments,
     readmeSuggestions, loadReadmeSuggestions, acceptSuggestion, rejectSuggestion,
+    reindexDocument,
+    removeDocumentFromKB,
   } = useKnowledgeStore()
 
   const [createOpen, setCreateOpen] = useState(false)
@@ -251,26 +257,74 @@ export default function Knowledge() {
           ) : (
             <List
               size="small"
-              dataSource={kbDocuments as { id: string; file_name: string; summary?: string; fit_score?: number; recommended_action?: string; created_at: string }[]}
-              renderItem={doc => (
-                <List.Item>
-                  <div style={{ flex: 1 }}>
-                    <Typography.Text strong>{doc.file_name}</Typography.Text>
+              dataSource={kbDocuments as { id: string; file_name: string; summary?: string; fit_score?: number; recommended_action?: string; created_at: string; index_status?: string | null; index_error?: string | null }[]}
+              renderItem={doc => {
+                const indexStatus = doc.index_status || 'not_indexed'
+                const indexTagMap: Record<string, { color: string; icon: React.ReactNode; label: string }> = {
+                  indexed: { color: 'success', icon: <CheckCircleOutlined />, label: '已索引' },
+                  indexing: { color: 'processing', icon: <SyncOutlined spin />, label: '索引中' },
+                  index_failed: { color: 'error', icon: <CloseCircleOutlined />, label: '索引失败' },
+                  not_indexed: { color: 'default', icon: <MinusCircleOutlined />, label: '未索引' },
+                }
+                const tagInfo = indexTagMap[indexStatus] || indexTagMap.not_indexed
+                return (
+                <List.Item
+                  onClick={() => navigate(`/document/${doc.id}`)}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Typography.Text strong ellipsis style={{ color: 'var(--accent)', maxWidth: '60%' }}>
+                        {(() => {
+                          try { return JSON.parse(doc.reading_card || '{}').paperTitle || doc.file_name } catch { return doc.file_name }
+                        })()}
+                      </Typography.Text>
+                      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4 }} onClick={e => e.stopPropagation()}>
+                        <Tag color={tagInfo.color} icon={tagInfo.icon}>{tagInfo.label}</Tag>
+                        {indexStatus !== 'indexing' && selectedKBId && (
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<ReloadOutlined />}
+                            onClick={() => reindexDocument(selectedKBId!, doc.id)}
+                            title="重建索引"
+                          />
+                        )}
+                        {selectedKBId && (
+                          <Popconfirm
+                            title="确认移除此文档？"
+                            description="文档本身不会被删除，仅从当前知识库移除"
+                            onConfirm={() => removeDocumentFromKB(selectedKBId!, doc.id)}
+                            okText="移除"
+                            cancelText="取消"
+                          >
+                            <Button
+                              type="text"
+                              size="small"
+                              danger
+                              icon={<DeleteOutlined />}
+                              title="从知识库移除"
+                            />
+                          </Popconfirm>
+                        )}
+                      </div>
+                    </div>
                     {doc.summary && (
-                      <Typography.Paragraph type="secondary" ellipsis={{ rows: 1 }} style={{ marginBottom: 0 }}>
+                      <Typography.Paragraph type="secondary" ellipsis={{ rows: 2 }} style={{ marginBottom: 0, marginTop: 4 }}>
                         {doc.summary}
                       </Typography.Paragraph>
                     )}
                     <div style={{ marginTop: 4 }}>
                       {doc.fit_score != null && <Tag color="blue">匹配 {doc.fit_score}</Tag>}
-                      {doc.recommended_action && <Tag>{doc.recommended_action}</Tag>}
+                      {doc.recommended_action && <Tag style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.recommended_action}</Tag>}
                       <Typography.Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
                         {new Date(doc.created_at).toLocaleDateString('zh-CN')}
                       </Typography.Text>
                     </div>
                   </div>
                 </List.Item>
-              )}
+                )
+              }}
             />
           )}
         </Card>

@@ -34,7 +34,6 @@ DEFAULT_CONFIG = {
     "knowledge": {
         "enabled": True,
         "chroma_path": "data/chroma",
-        "sqlite_path": "data/knowledge.db",
         "auto_index": True,
         "max_context_tokens": 8000,
     },
@@ -158,4 +157,6 @@ class ConfigManager:
             return "openai_compatible"
         if lower in ("minimax",):
             return "minimax"
+        if lower in ("local", "local_embedding"):
+            return "local"
         return "openai_compatible"

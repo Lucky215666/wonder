@@ -1,3 +1,13 @@
+export type DocumentLifecycleStatus =
+  | 'uploaded'
+  | 'parsed'
+  | 'analyzing'
+  | 'analyzed'
+  | 'indexing'
+  | 'indexed'
+  | 'index_failed'
+  | 'failed'
+
 export interface LLMConfig {
   provider: string
   baseUrl: string
@@ -54,6 +64,7 @@ export interface ReadmeSuggestion {
 
 export interface AnalysisResult {
   summary: string
+  paperTitle?: string
   readingCard: string
   knowledgeBaseFitScore?: number
   fitReason?: string

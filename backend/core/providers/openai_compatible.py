@@ -14,7 +14,7 @@ class OpenAICompatibleProvider:
         base_url: str,
         client: OpenAI | None = None,
     ):
-        self._client = client or OpenAI(api_key=api_key, base_url=base_url)
+        self._client = client or OpenAI(api_key=api_key, base_url=base_url, timeout=300.0)
 
     def chat(
         self,

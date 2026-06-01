@@ -65,7 +65,6 @@ class EmbeddingConfig(BaseModel):
 class KnowledgeConfig(BaseModel):
     enabled: bool = True
     chroma_path: str = "data/chroma"
-    sqlite_path: str = "data/knowledge.db"
     auto_index: bool = True
     max_context_tokens: int = 8000
 
@@ -85,7 +84,7 @@ class ChatConfig(BaseModel):
 
 class NormalizedEmbeddingConfig(BaseModel):
     model_config = {"protected_namespaces": ()}
-    provider: Literal["openai_compatible", "custom_openai_compatible", "minimax"] = "openai_compatible"
+    provider: Literal["openai_compatible", "custom_openai_compatible", "minimax", "local"] = "openai_compatible"
     preset: str = ""
     api_key: str = Field(default="", alias="apiKey")
     base_url: str = Field(default="https://api.openai.com/v1", alias="baseUrl")
@@ -117,9 +116,11 @@ class KnowledgeQARequest(BaseModel):
     knowledge_base_id: Optional[str] = None
     knowledge_base_readme: str = ""
     global_profile: str = ""
+    nickname: str = ""
     doc_ids: Optional[List[str]] = None
     top_k_docs: int = 3
     top_k_chunks: int = 5
+    conversation_history: Optional[List[dict]] = None
     chat_config: Optional[ChatConfig] = None
     embedding_config: Optional[NormalizedEmbeddingConfig] = None
 
@@ -178,6 +179,8 @@ class GatewayAnalysisResponse(BaseModel):
     summary: str
     tags: List[str] = []
     fit_score: Optional[float] = None
+    fit_reason: Optional[str] = None
+    relation_type: Optional[str] = None
     placement: Optional[str] = None
     recommended_action: Optional[str] = None
     readme_suggestions: List[dict] = []

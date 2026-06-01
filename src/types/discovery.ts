@@ -7,6 +7,7 @@ export interface DiscoveryContext {
 }
 
 export interface DiscoveryCandidate {
+  id?: string
   paperId: string
   title: string
   abstract: string | null
@@ -20,4 +21,5 @@ export interface DiscoveryCandidate {
   discoveryPriorityScore: number
   discoveryReason: string
   state: 'new' | 'saved' | 'ignored' | 'sent_to_analysis'
+  knowledgeBaseId?: string | null
 }
