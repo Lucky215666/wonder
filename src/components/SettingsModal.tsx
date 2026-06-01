@@ -16,7 +16,7 @@ import {
 } from '@ant-design/icons'
 import { useConfigStore } from '../stores/config'
 import { useUIStore } from '../stores/ui'
-import type { AppConfig } from '../lib/llm/types'
+import type { AppConfig } from '../types/analysis'
 
 type SettingsTab = 'api' | 'research' | 'update' | 'profile'
 
@@ -83,6 +83,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
     embeddingApiKey: '',
     embeddingModel: '',
     researchBackground: '',
+    globalUserProfile: '',
     nickname: '',
     avatar: '',
   })
@@ -111,6 +112,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
         embeddingApiKey: config.embeddingApiKey || '',
         embeddingModel: config.embeddingModel || '',
         researchBackground: '',
+        globalUserProfile: config.globalUserProfile || '',
         nickname: config.nickname || '',
         avatar: config.avatar || '',
       })
@@ -176,6 +178,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
       embeddingModel: form.embeddingModel || undefined,
       nickname: form.nickname || undefined,
       avatar: form.avatar || undefined,
+      globalUserProfile: form.globalUserProfile || undefined,
     }
     await saveConfig(payload)
     message.success('设置已保存')
@@ -383,16 +386,38 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                 <BookOutlined /> 研究背景
               </h2>
               <p className="wonder-settings-pane-desc">
-                描述你的研究方向和兴趣，帮助 AI 更好地理解你的需求
+                全局研究背景会在所有知识库的分析中生效
               </p>
 
               <div className="wonder-settings-field">
                 <label className="wonder-settings-label">
+                  <UserOutlined /> 全局用户画像
+                </label>
+                <Typography.Text style={{ display: 'block', marginBottom: 8, color: 'var(--ink-caption)', fontSize: 12 }}>
+                  描述你的专业、研究阶段、长期兴趣、偏好方法、写作风格等，所有知识库共享此上下文
+                </Typography.Text>
+                <Input.TextArea
+                  rows={8}
+                  placeholder={`例如：
+- 专业：计算机科学，研二
+- 研究方向：大语言模型在教育领域的应用
+- 偏好方法：混合研究方法，注重实证
+- 写作风格：学术正式，偏好结构化表达
+- 分析偏好：关注方法论创新和实际应用价值
+- 约束：避免泛泛而谈，标记不确定的结论`}
+                  value={form.globalUserProfile}
+                  onChange={e => setForm(f => ({ ...f, globalUserProfile: e.target.value }))}
+                  style={{ resize: 'vertical', fontFamily: 'var(--font-mono)', fontSize: 13 }}
+                />
+              </div>
+
+              <div className="wonder-settings-field" style={{ marginTop: 16 }}>
+                <label className="wonder-settings-label">
                   <FileTextOutlined /> 研究方向描述
                 </label>
                 <Input.TextArea
-                  rows={6}
-                  placeholder="例如：我是计算机视觉方向的研究生，主要关注目标检测和图像分割..."
+                  rows={4}
+                  placeholder="简要描述你的研究方向和兴趣..."
                   value={form.researchBackground}
                   onChange={e => setForm(f => ({ ...f, researchBackground: e.target.value }))}
                   style={{ resize: 'vertical' }}

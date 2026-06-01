@@ -110,9 +110,18 @@ class StorageManager:
             kwargs["where"] = where
         return self.collection.query(**kwargs)
 
-    def delete_from_collection(self, doc_id: str):
-        """从 ChromaDB 删除文档的所有分块"""
-        self.collection.delete(where={"doc_id": doc_id})
+    def delete_from_collection(self, doc_id: str, knowledge_base_id: Optional[str] = None):
+        where: Dict[str, Any]
+        if knowledge_base_id:
+            where = {
+                "$and": [
+                    {"doc_id": doc_id},
+                    {"knowledge_base_id": knowledge_base_id},
+                ]
+            }
+        else:
+            where = {"doc_id": doc_id}
+        self.collection.delete(where=where)
 
     def close(self):
         """关闭连接"""

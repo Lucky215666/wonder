@@ -3,6 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { Card, Typography, Spin, Button } from 'antd'
 import { ArrowLeftOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { api } from '../services/api'
+import AnalysisResult from '../components/AnalysisResult'
+import type { AnalysisResult as AnalysisResultType } from '../types/analysis'
 
 export default function HistoryDetail() {
   const { id } = useParams<{ id: string }>()
@@ -34,12 +36,33 @@ export default function HistoryDetail() {
     )
   }
 
-  let parsed: unknown
+  let parsed: AnalysisResultType | unknown
   try {
-    parsed = JSON.parse(data.result)
+    const raw = JSON.parse(data.result)
+    // Transform nested result structure to flat AnalysisResult
+    if (raw && typeof raw === 'object' && raw.literature) {
+      const lit = raw.literature || {}
+      const rel = raw.relation || {}
+      const wri = raw.writing || {}
+      parsed = {
+        summary: lit.summary || '',
+        readingCard: lit.readingCard || '',
+        knowledgeBaseFitScore: lit.fitScore,
+        recommendedAction: lit.action,
+        tags: lit.tags,
+        relationAnalysis: rel.relationAnalysis,
+        relationToExistingDocs: rel.relationToExistingDocs,
+        writingAssets: wri.writingAssets,
+        readmeUpdateSuggestions: raw.readmeSuggestions,
+      } as AnalysisResultType
+    } else {
+      parsed = raw as AnalysisResultType
+    }
   } catch {
     parsed = data.result
   }
+
+  const isStructured = parsed && typeof parsed === 'object' && !Array.isArray(parsed) && ('summary' in parsed || 'readingCard' in parsed)
 
   return (
     <div className="wonder-page wonder-stagger">
@@ -54,23 +77,27 @@ export default function HistoryDetail() {
         </div>
       </div>
 
-      <Card>
-        <pre style={{
-          whiteSpace: 'pre-wrap',
-          fontFamily: 'var(--font-mono)',
-          fontSize: 13,
-          lineHeight: 1.6,
-          color: 'var(--ink-secondary)',
-          background: 'var(--bg)',
-          padding: '16px 20px',
-          borderRadius: 'var(--radius-md)',
-          border: '1px solid var(--border-light)',
-          maxHeight: 600,
-          overflow: 'auto',
-        }}>
-          {JSON.stringify(parsed, null, 2)}
-        </pre>
-      </Card>
+      {isStructured ? (
+        <AnalysisResult result={parsed as AnalysisResultType} />
+      ) : (
+        <Card>
+          <pre style={{
+            whiteSpace: 'pre-wrap',
+            fontFamily: 'var(--font-mono)',
+            fontSize: 13,
+            lineHeight: 1.6,
+            color: 'var(--ink-secondary)',
+            background: 'var(--bg)',
+            padding: '16px 20px',
+            borderRadius: 'var(--radius-md)',
+            border: '1px solid var(--border-light)',
+            maxHeight: 600,
+            overflow: 'auto',
+          }}>
+            {JSON.stringify(parsed, null, 2)}
+          </pre>
+        </Card>
+      )}
     </div>
   )
 }

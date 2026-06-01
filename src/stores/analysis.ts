@@ -13,12 +13,13 @@ interface AnalysisState {
   steps: AnalysisStep[]
   running: boolean
   documentId: string | null
+  knowledgeBaseId: string | null
   apiStatus: 'idle' | 'checking' | 'ok' | 'error'
   apiError: string | null
   abortController: AbortController | null
 
   checkApi: () => Promise<boolean>
-  analyze: (fileName: string, fileType: string, text: string) => Promise<void>
+  analyze: (fileName: string, fileType: string, text: string, knowledgeBaseId?: string) => Promise<void>
   cancel: () => void
   reset: () => void
 }
@@ -27,6 +28,7 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => ({
   steps: [],
   running: false,
   documentId: null,
+  knowledgeBaseId: null,
   apiStatus: 'idle',
   apiError: null,
   abortController: null,
@@ -43,14 +45,14 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => ({
     }
   },
 
-  analyze: async (fileName, fileType, text) => {
+  analyze: async (fileName, fileType, text, knowledgeBaseId) => {
     const ac = new AbortController()
-    set({ running: true, steps: [], documentId: null, abortController: ac })
+    set({ running: true, steps: [], documentId: null, knowledgeBaseId: knowledgeBaseId || null, abortController: ac })
 
     try {
       await api.stream(
         '/api/analysis/single',
-        { fileName, fileType, text },
+        { fileName, fileType, text, knowledgeBaseId },
         (event, data) => {
           if (event === 'step') {
             const step = JSON.parse(data) as AnalysisStep
@@ -71,8 +73,8 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => ({
               ),
             }))
           } else if (event === 'complete') {
-            const { documentId } = JSON.parse(data)
-            set({ running: false, documentId, abortController: null })
+            const { documentId, knowledgeBaseId: kbId } = JSON.parse(data)
+            set({ running: false, documentId, knowledgeBaseId: kbId || null, abortController: null })
           } else if (event === 'cancel') {
             set({ running: false, abortController: null })
           }
@@ -99,5 +101,5 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => ({
     get().abortController?.abort()
   },
 
-  reset: () => set({ steps: [], running: false, documentId: null, abortController: null }),
+  reset: () => set({ steps: [], running: false, documentId: null, knowledgeBaseId: null, abortController: null }),
 }))

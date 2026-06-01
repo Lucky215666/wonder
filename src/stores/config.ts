@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { api } from '../services/api'
-import type { AppConfig } from '../lib/llm/types'
+import type { AppConfig } from '../types/analysis'
 
 interface ConfigState {
   config: AppConfig | null
@@ -15,11 +15,25 @@ export const useConfigStore = create<ConfigState>((set) => ({
   loadConfig: async () => {
     const data = await api.get<Record<string, string>>('/api/config')
     const raw = data.appConfig
-    if (raw) set({ config: JSON.parse(raw), loaded: true })
-    else set({ loaded: true })
+    if (raw) {
+      const parsed = JSON.parse(raw) as AppConfig
+      // Also load globalUserProfile from separate config key
+      if (data.globalUserProfile) {
+        parsed.globalUserProfile = data.globalUserProfile
+      }
+      set({ config: parsed, loaded: true })
+    } else {
+      set({ loaded: true })
+    }
   },
   saveConfig: async (config) => {
-    await api.put('/api/config', { appConfig: JSON.stringify(config) })
+    const payload: Record<string, string> = {
+      appConfig: JSON.stringify(config),
+    }
+    if (config.globalUserProfile) {
+      payload.globalUserProfile = config.globalUserProfile
+    }
+    await api.put('/api/config', payload)
     set({ config })
   },
 }))

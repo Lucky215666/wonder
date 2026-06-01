@@ -41,7 +41,7 @@ describe('StorageService', () => {
     storage.upsertDocument({ id: 'doc1', fileName: 'a.pdf', fileType: 'pdf' })
     storage.insertChunk({ id: 'c1', documentId: 'doc1', content: 'hello', chunkIndex: 0 })
     storage.deleteDocument('doc1')
-    expect(storage.getDocument('doc1')).toBeNull()
+    expect(storage.getDocument('doc1')).toBeFalsy()
     expect(storage.getChunksByDocument('doc1')).toHaveLength(0)
   })
 

@@ -1,10 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { Card, Typography, Spin, Tag, Space, Button, Empty, message } from 'antd'
-import { LinkOutlined, ArrowLeftOutlined, BookOutlined, CalendarOutlined, GlobalOutlined } from '@ant-design/icons'
+import { Card, Typography, Spin, Tag, Space, Button, Empty, message, Divider } from 'antd'
+import { LinkOutlined, ArrowLeftOutlined, BookOutlined, CalendarOutlined, GlobalOutlined, SaveOutlined, StopOutlined } from '@ant-design/icons'
 import { buildCitationGraph, type GraphNode, type GraphEdge } from '../lib/discovery/citation-graph'
 import { getPaper } from '../lib/discovery/semantic-scholar'
+import { calculateDiscoveryPriorityScore } from '../lib/discovery/ranking'
+import { useDiscoveryStore } from '../stores/discovery'
 import type { S2Paper } from '../lib/discovery/types'
+import type { DiscoveryCandidate } from '../types/discovery'
 
 export default function CitationNetwork() {
   const [searchParams] = useSearchParams()
@@ -16,6 +19,8 @@ export default function CitationNetwork() {
   const [nodes, setNodes] = useState<GraphNode[]>([])
   const [edges, setEdges] = useState<GraphEdge[]>([])
   const [selectedRef, setSelectedRef] = useState<GraphNode | null>(null)
+
+  const { discoveryContext, addToCandidateQueue, isInQueue, getCandidate } = useDiscoveryStore()
 
   useEffect(() => {
     if (!paperId) return
@@ -35,6 +40,97 @@ export default function CitationNetwork() {
       .finally(() => setLoading(false))
   }, [paperId])
 
+  const references = useMemo(() => {
+    return edges
+      .filter(e => e.from === paperId && e.type === 'references')
+      .map(e => nodes.find(n => n.paperId === e.to))
+      .filter(Boolean) as GraphNode[]
+  }, [edges, nodes, paperId])
+
+  const citations = useMemo(() => {
+    return edges
+      .filter(e => e.to === paperId && e.type === 'citations')
+      .map(e => nodes.find(n => n.paperId === e.from))
+      .filter(Boolean) as GraphNode[]
+  }, [edges, nodes, paperId])
+
+  const getScoreAndReason = (node: GraphNode) => {
+    if (!discoveryContext || discoveryContext.keywords.length === 0) {
+      return { score: 0, reason: '无上下文' }
+    }
+    const paper: S2Paper = {
+      paperId: node.paperId,
+      title: node.title,
+      abstract: null,
+      year: node.year,
+      citationCount: node.citationCount,
+      venue: '',
+      authors: [],
+      url: '',
+    }
+    return calculateDiscoveryPriorityScore(paper, discoveryContext.keywords)
+  }
+
+  const handleSaveCandidate = (node: GraphNode, type: 'reference' | 'citation') => {
+    if (!discoveryContext) {
+      message.warning('请先在文献发现页面设置发现上下文')
+      return
+    }
+
+    const ranking = getScoreAndReason(node)
+    const candidate: DiscoveryCandidate = {
+      paperId: node.paperId,
+      title: node.title,
+      abstract: null,
+      year: node.year,
+      citationCount: node.citationCount,
+      authors: [],
+      sourceQuery: type === 'reference' ? 'citation-reference' : 'citation-citing',
+      discoveryPriorityScore: ranking.score,
+      discoveryReason: ranking.reason,
+      state: 'saved',
+    }
+    addToCandidateQueue(candidate)
+    message.success('已保存到候选队列')
+  }
+
+  const handleIgnoreCandidate = (node: GraphNode, type: 'reference' | 'citation') => {
+    if (!discoveryContext) {
+      message.warning('请先在文献发现页面设置发现上下文')
+      return
+    }
+
+    const ranking = getScoreAndReason(node)
+    const candidate: DiscoveryCandidate = {
+      paperId: node.paperId,
+      title: node.title,
+      abstract: null,
+      year: node.year,
+      citationCount: node.citationCount,
+      authors: [],
+      sourceQuery: type === 'reference' ? 'citation-reference' : 'citation-citing',
+      discoveryPriorityScore: ranking.score,
+      discoveryReason: ranking.reason,
+      state: 'ignored',
+    }
+    addToCandidateQueue(candidate)
+    message.info('已忽略该论文')
+  }
+
+  const getCandidateStateTag = (nodeId: string) => {
+    const candidate = getCandidate(nodeId)
+    if (!candidate) return null
+
+    const stateMap = {
+      new: { color: 'blue', text: '新' },
+      saved: { color: 'green', text: '已保存' },
+      ignored: { color: 'default', text: '已忽略' },
+      sent_to_analysis: { color: 'purple', text: '已发送分析' },
+    }
+    const state = stateMap[candidate.state]
+    return <Tag color={state.color} style={{ marginLeft: 4 }}>{state.text}</Tag>
+  }
+
   if (!paperId) {
     return (
       <div className="wonder-page">
@@ -47,16 +143,6 @@ export default function CitationNetwork() {
       </div>
     )
   }
-
-  const references = edges
-    .filter(e => e.from === paperId && e.type === 'references')
-    .map(e => nodes.find(n => n.paperId === e.to))
-    .filter(Boolean) as GraphNode[]
-
-  const citations = edges
-    .filter(e => e.to === paperId && e.type === 'citations')
-    .map(e => nodes.find(n => n.paperId === e.from))
-    .filter(Boolean) as GraphNode[]
 
   return (
     <div className="wonder-page wonder-stagger">
@@ -102,19 +188,61 @@ export default function CitationNetwork() {
                 <Empty description="暂无参考文献数据" />
               ) : (
                 <div style={{ maxHeight: 400, overflowY: 'auto' }}>
-                  {references.map((ref) => (
-                    <div
-                      key={ref.paperId}
-                      className="wonder-discovery-item"
-                      style={{ marginBottom: 8 }}
-                      onClick={() => setSelectedRef(ref)}
-                    >
-                      <div className="wonder-discovery-item__title">{ref.title}</div>
-                      <div className="wonder-discovery-item__meta">
-                        {ref.year ?? '未知'} · 引用 {ref.citationCount}
+                  {references.map((ref) => {
+                    const { score, reason } = getScoreAndReason(ref)
+                    const inQueue = isInQueue(ref.paperId)
+                    return (
+                      <div
+                        key={ref.paperId}
+                        className="wonder-discovery-item"
+                        style={{ marginBottom: 8 }}
+                      >
+                        <div
+                          style={{ cursor: 'pointer' }}
+                          onClick={() => setSelectedRef(ref)}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div className="wonder-discovery-item__title" style={{ flex: 1 }}>{ref.title}</div>
+                            {discoveryContext && (
+                              <div style={{ marginLeft: 8, textAlign: 'right' }}>
+                                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink-primary)' }}>{score}</div>
+                                <div style={{ fontSize: 10, color: 'var(--ink-faint)' }}>优先级</div>
+                              </div>
+                            )}
+                          </div>
+                          <div className="wonder-discovery-item__meta">
+                            {ref.year ?? '未知'} · 引用 {ref.citationCount}
+                            {getCandidateStateTag(ref.paperId)}
+                          </div>
+                          {discoveryContext && (
+                            <div style={{ fontSize: 11, color: 'var(--ink-caption)', marginTop: 2 }}>
+                              {reason}
+                            </div>
+                          )}
+                        </div>
+                        {discoveryContext && !inQueue && (
+                          <Space size={4} style={{ marginTop: 4 }}>
+                            <Button
+                              type="link"
+                              size="small"
+                              icon={<SaveOutlined />}
+                              onClick={(e) => { e.stopPropagation(); handleSaveCandidate(ref, 'reference') }}
+                            >
+                              保存
+                            </Button>
+                            <Button
+                              type="link"
+                              size="small"
+                              icon={<StopOutlined />}
+                              onClick={(e) => { e.stopPropagation(); handleIgnoreCandidate(ref, 'reference') }}
+                            >
+                              忽略
+                            </Button>
+                          </Space>
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </Card>
@@ -124,19 +252,61 @@ export default function CitationNetwork() {
                 <Empty description="暂无被引数据" />
               ) : (
                 <div style={{ maxHeight: 400, overflowY: 'auto' }}>
-                  {citations.map((cit) => (
-                    <div
-                      key={cit.paperId}
-                      className="wonder-discovery-item"
-                      style={{ marginBottom: 8 }}
-                      onClick={() => setSelectedRef(cit)}
-                    >
-                      <div className="wonder-discovery-item__title">{cit.title}</div>
-                      <div className="wonder-discovery-item__meta">
-                        {cit.year ?? '未知'} · 引用 {cit.citationCount}
+                  {citations.map((cit) => {
+                    const { score, reason } = getScoreAndReason(cit)
+                    const inQueue = isInQueue(cit.paperId)
+                    return (
+                      <div
+                        key={cit.paperId}
+                        className="wonder-discovery-item"
+                        style={{ marginBottom: 8 }}
+                      >
+                        <div
+                          style={{ cursor: 'pointer' }}
+                          onClick={() => setSelectedRef(cit)}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div className="wonder-discovery-item__title" style={{ flex: 1 }}>{cit.title}</div>
+                            {discoveryContext && (
+                              <div style={{ marginLeft: 8, textAlign: 'right' }}>
+                                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink-primary)' }}>{score}</div>
+                                <div style={{ fontSize: 10, color: 'var(--ink-faint)' }}>优先级</div>
+                              </div>
+                            )}
+                          </div>
+                          <div className="wonder-discovery-item__meta">
+                            {cit.year ?? '未知'} · 引用 {cit.citationCount}
+                            {getCandidateStateTag(cit.paperId)}
+                          </div>
+                          {discoveryContext && (
+                            <div style={{ fontSize: 11, color: 'var(--ink-caption)', marginTop: 2 }}>
+                              {reason}
+                            </div>
+                          )}
+                        </div>
+                        {discoveryContext && !inQueue && (
+                          <Space size={4} style={{ marginTop: 4 }}>
+                            <Button
+                              type="link"
+                              size="small"
+                              icon={<SaveOutlined />}
+                              onClick={(e) => { e.stopPropagation(); handleSaveCandidate(cit, 'citation') }}
+                            >
+                              保存
+                            </Button>
+                            <Button
+                              type="link"
+                              size="small"
+                              icon={<StopOutlined />}
+                              onClick={(e) => { e.stopPropagation(); handleIgnoreCandidate(cit, 'citation') }}
+                            >
+                              忽略
+                            </Button>
+                          </Space>
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </Card>
@@ -160,6 +330,24 @@ export default function CitationNetwork() {
                   >
                     查看引用图谱
                   </Button>
+                  {discoveryContext && !isInQueue(selectedRef.paperId) && (
+                    <>
+                      <Button
+                        size="small"
+                        icon={<SaveOutlined />}
+                        onClick={() => handleSaveCandidate(selectedRef, 'reference')}
+                      >
+                        保存候选
+                      </Button>
+                      <Button
+                        size="small"
+                        icon={<StopOutlined />}
+                        onClick={() => handleIgnoreCandidate(selectedRef, 'reference')}
+                      >
+                        忽略
+                      </Button>
+                    </>
+                  )}
                   <Button size="small" onClick={() => setSelectedRef(null)}>关闭</Button>
                 </Space>
               }
@@ -170,7 +358,16 @@ export default function CitationNetwork() {
               <Space wrap>
                 <Tag icon={<CalendarOutlined />}>{selectedRef.year ?? '未知'}</Tag>
                 <Tag icon={<GlobalOutlined />}>引用 {selectedRef.citationCount}</Tag>
+                {discoveryContext && (
+                  <Tag color="blue">优先级: {getScoreAndReason(selectedRef).score}</Tag>
+                )}
+                {getCandidateStateTag(selectedRef.paperId)}
               </Space>
+              {discoveryContext && (
+                <div style={{ marginTop: 8, color: 'var(--ink-caption)', fontSize: 12 }}>
+                  {getScoreAndReason(selectedRef).reason}
+                </div>
+              )}
             </Card>
           )}
         </>

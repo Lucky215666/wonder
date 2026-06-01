@@ -16,6 +16,7 @@ from backend.agents.writing import WritingAgent
 from backend.agents.todo import TodoAgent
 from backend.agents.qa import QAAgent
 from backend.models.schemas import (
+    KnowledgeIndexRequest,
     KnowledgeQARequest, KnowledgeQAResponse,
     SearchRequest, SearchResponse,
     DocumentListResponse, DocumentDetailResponse
@@ -71,6 +72,26 @@ def get_orchestrator():
     }
 
     return Orchestrator(agents=agents, retriever=retriever)
+
+
+@router.post("/documents/gateway")
+async def index_gateway_document(request: KnowledgeIndexRequest):
+    try:
+        storage, embedding = get_storage_and_embedding()
+        indexer = DocumentIndexer(storage, embedding)
+        doc_id = indexer.index_document(
+            doc_id=request.doc_id,
+            knowledge_base_id=request.knowledge_base_id,
+            file_name=request.file_name,
+            file_path=request.file_path,
+            chunks=request.chunks,
+            summary=request.summary,
+            analysis_result=request.analysis_result,
+            tags=request.tags,
+        )
+        return {"doc_id": doc_id, "message": "Document indexed successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/documents")
@@ -139,9 +160,12 @@ async def ask_question(request: KnowledgeQARequest):
         result = orchestrator.route_task(
             task_type="ask_question",
             question=request.question,
+            knowledge_base_id=request.knowledge_base_id,
+            knowledge_base_readme=request.knowledge_base_readme,
+            global_profile=request.global_profile,
             doc_ids=request.doc_ids,
             top_k_docs=request.top_k_docs,
-            top_k_chunks=request.top_k_chunks
+            top_k_chunks=request.top_k_chunks,
         )
         return KnowledgeQAResponse(
             answer=result["answer"],

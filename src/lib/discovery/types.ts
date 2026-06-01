@@ -4,6 +4,7 @@ export interface S2Paper {
   abstract: string | null
   year: number | null
   citationCount: number
+  influentialCitationCount?: number
   venue: string
   authors: Array<{ authorId: string; name: string }>
   url: string

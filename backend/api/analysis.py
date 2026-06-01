@@ -6,11 +6,13 @@ from backend.agents.literature import LiteratureParserAgent
 from backend.agents.relation import ProjectRelationAgent
 from backend.agents.writing import WritingAgent
 from backend.agents.todo import TodoAgent
+from backend.agents.orchestrator import Orchestrator
 from backend.core.file_reader import read_file, clean_text
 from backend.core.chunker import chunk_text, estimate_tokens
 from backend.core.config import ConfigManager
 from backend.core.history import HistoryManager
 from backend.core.llm_client import LLMCallError
+from backend.models.schemas import GatewayAnalysisRequest, GatewayAnalysisResponse
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 
@@ -123,3 +125,53 @@ async def analyze_single(
 
     except LLMCallError as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/gateway", response_model=GatewayAnalysisResponse)
+async def analyze_gateway(request: GatewayAnalysisRequest):
+    if not request.text.strip():
+        raise HTTPException(status_code=400, detail="No text provided.")
+
+    text_chunks = chunk_text(request.text, max_chars=request.max_chars, overlap=request.overlap)
+    model_name, api_key, base_url = get_model_params()
+
+    agents = {
+        "literature": LiteratureParserAgent(model_name, api_key, base_url),
+        "relation": ProjectRelationAgent(model_name, api_key, base_url),
+        "writing": WritingAgent(model_name, api_key, base_url),
+        "todo": TodoAgent(model_name, api_key, base_url),
+    }
+    orchestrator = Orchestrator(agents=agents)
+
+    failed_agents: list[str] = []
+    try:
+        result = orchestrator.route_task(
+            task_type="analyze_document",
+            text_chunks=text_chunks,
+            research_context="\n\n".join(
+                part for part in [request.global_profile, request.knowledge_base_readme] if part
+            ),
+            writing_style="",
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    reading_card = result.get("reading_card", "")
+    relation_analysis = result.get("relation_analysis", "")
+    writing_materials = result.get("writing_materials", "")
+    todo_list = result.get("todo_list", "")
+    summary = reading_card.splitlines()[0][:400] if reading_card else ""
+
+    return GatewayAnalysisResponse(
+        doc_id=request.doc_id,
+        file_name=request.file_name,
+        status="partial" if failed_agents else "ok",
+        failed_agents=failed_agents,
+        reading_card=reading_card,
+        relation_analysis=relation_analysis,
+        writing_materials=writing_materials,
+        todo_list=todo_list,
+        summary=summary,
+        tags=[],
+        source_chunks=text_chunks,
+    )

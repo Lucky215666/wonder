@@ -21,6 +21,7 @@ import {
 } from '@ant-design/icons'
 
 import Home from './pages/Home'
+import Analysis from './pages/Analysis'
 import Welcome from './pages/Welcome'
 import Batch from './pages/Batch'
 import QA from './pages/QA'
@@ -34,8 +35,11 @@ import SettingsModal from './components/SettingsModal'
 const { Sider, Content } = Layout
 
 const menuItems = [
+  { type: 'group' as const, label: <span className="wonder-nav-group">学术研究</span>, children: [
+    { key: '/', icon: <BookOutlined />, label: '知识库' },
+  ]},
   { type: 'group' as const, label: <span className="wonder-nav-group">分析</span>, children: [
-    { key: '/', icon: <HomeOutlined />, label: '单篇分析' },
+    { key: '/analysis', icon: <HomeOutlined />, label: '单篇分析' },
     { key: '/batch', icon: <FileTextOutlined />, label: '批量矩阵' },
   ]},
   { type: 'group' as const, label: <span className="wonder-nav-group">工具</span>, children: [
@@ -44,7 +48,7 @@ const menuItems = [
     { key: '/qa', icon: <ExperimentOutlined />, label: '追溯问答' },
   ]},
   { type: 'group' as const, label: <span className="wonder-nav-group">记录</span>, children: [
-    { key: '/knowledge', icon: <BookOutlined />, label: '知识库' },
+    { key: '/knowledge', icon: <SettingOutlined />, label: '知识库管理' },
     { key: '/history', icon: <HistoryOutlined />, label: '历史记录' },
   ]},
 ]
@@ -180,6 +184,7 @@ export default function App() {
           <Content className="wonder-content">
             <Routes>
               <Route path="/" element={<Home />} />
+              <Route path="/analysis" element={<Analysis />} />
               <Route path="/batch" element={<Batch />} />
               <Route path="/qa" element={<QA />} />
               <Route path="/discovery" element={<Discovery />} />

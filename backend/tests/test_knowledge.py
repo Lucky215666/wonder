@@ -47,6 +47,8 @@ def test_document_indexing(test_storage, mock_embedding):
     """测试文档入库"""
     indexer = DocumentIndexer(test_storage, mock_embedding)
     doc_id = indexer.index_document(
+        doc_id="test-doc-1",
+        knowledge_base_id="kb-1",
         file_name="test.txt",
         file_path="/tmp/test.txt",
         chunks=["chunk1", "chunk2"],
@@ -58,8 +60,7 @@ def test_document_indexing(test_storage, mock_embedding):
             "todo_list": "test todo"
         }
     )
-    assert doc_id is not None
-    assert len(doc_id) == 8
+    assert doc_id == "test-doc-1"
 
     # 验证文档已入库
     doc = test_storage.get_document(doc_id)
@@ -71,6 +72,8 @@ def test_document_deletion(test_storage, mock_embedding):
     """测试文档删除"""
     indexer = DocumentIndexer(test_storage, mock_embedding)
     doc_id = indexer.index_document(
+        doc_id="test-doc-2",
+        knowledge_base_id="kb-1",
         file_name="test.txt",
         file_path="/tmp/test.txt",
         chunks=["chunk1"],

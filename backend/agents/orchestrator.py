@@ -72,24 +72,31 @@ class Orchestrator:
             "todo_list": todo
         }
 
-    def _ask_question(self, question: str, doc_ids: Optional[List[str]] = None,
+    def _ask_question(self, question: str, knowledge_base_id: Optional[str] = None,
+                      knowledge_base_readme: str = "", global_profile: str = "",
+                      doc_ids: Optional[List[str]] = None,
                       conversation_history: Optional[List[Dict]] = None,
                       top_k_docs: int = 3, top_k_chunks: int = 5) -> Dict[str, Any]:
-        """问答流程：RAG 检索 + QA Agent"""
         if not self.retriever:
             raise ValueError("RAG retriever not configured")
 
-        # 1. RAG 检索
         retrieval = self.retriever.retrieve(
             query=question,
+            knowledge_base_id=knowledge_base_id,
             doc_ids=doc_ids,
             top_k_docs=top_k_docs,
-            top_k_chunks=top_k_chunks
+            top_k_chunks=top_k_chunks,
         )
 
-        # 2. QA Agent 回答
+        context_parts = [
+            f"[Global Profile]\n{global_profile}".strip(),
+            f"[Knowledge Base README]\n{knowledge_base_readme}".strip(),
+            retrieval.context,
+        ]
+        document_context = "\n\n---\n\n".join(part for part in context_parts if part)
+
         answer = self.agents["qa"].run(
-            document_context=retrieval.context,
+            document_context=document_context,
             analysis_report="",
             question=question,
             conversation_history=conversation_history or []
@@ -98,7 +105,7 @@ class Orchestrator:
         return {
             "answer": answer,
             "source_doc_ids": retrieval.source_doc_ids,
-            "source_chunks": retrieval.chunks
+            "source_chunks": retrieval.chunks,
         }
 
     def _generate_writing(self, reading_card: str, relation_analysis: str,

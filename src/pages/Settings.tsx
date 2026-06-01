@@ -11,7 +11,7 @@ import {
   CameraOutlined,
 } from '@ant-design/icons'
 import { useConfigStore } from '../stores/config'
-import type { AppConfig } from '../lib/llm/types'
+import type { AppConfig } from '../types/analysis'
 
 interface ProviderConfig {
   id: string

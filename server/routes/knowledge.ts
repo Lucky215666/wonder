@@ -1,8 +1,8 @@
 import { Hono } from 'hono'
 import { StorageService } from '../services/storage'
-import { LLMService } from '../services/llm'
+import { PythonBackendClient } from '../services/python-backend'
 
-export function knowledgeRoutes(storage: StorageService, llm: LLMService) {
+export function knowledgeRoutes(storage: StorageService, python: PythonBackendClient) {
   const app = new Hono()
 
   app.get('/', (c) => {
@@ -10,8 +10,13 @@ export function knowledgeRoutes(storage: StorageService, llm: LLMService) {
     return c.json(docs)
   })
 
-  app.delete('/:id', (c) => {
+  app.delete('/:id', async (c) => {
     const id = c.req.param('id')
+    try {
+      await python.delete(`/api/knowledge/documents/${id}`)
+    } catch {
+      // SQLite remains source of truth; failed index deletion can be retried by reindex tooling.
+    }
     storage.deleteChunksByDocument(id)
     storage.deleteDocument(id)
     return c.json({ success: true })

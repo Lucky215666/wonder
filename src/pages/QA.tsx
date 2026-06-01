@@ -4,9 +4,11 @@ import { SendOutlined, DeleteOutlined, ExperimentOutlined } from '@ant-design/ic
 import { useQAStore } from '../stores/qa'
 import ChatMessage from '../components/ChatMessage'
 import ApiGuard from '../components/ApiGuard'
+import KBSelector from '../components/KBSelector'
 
 export default function QA() {
   const [input, setInput] = useState('')
+  const [selectedKB, setSelectedKB] = useState<string | null>(null)
   const { messages, loading, sendMessage, clear } = useQAStore()
   const listRef = useRef<HTMLDivElement>(null)
 
@@ -18,7 +20,7 @@ export default function QA() {
 
   const handleSend = () => {
     if (!input.trim()) return
-    sendMessage(input.trim())
+    sendMessage(input.trim(), selectedKB || undefined)
     setInput('')
   }
 
@@ -31,20 +33,29 @@ export default function QA() {
       </div>
 
       <Card style={{ marginBottom: 16 }}>
+        <div style={{ marginBottom: 12 }}>
+          <KBSelector
+            value={selectedKB}
+            onChange={setSelectedKB}
+            placeholder="选择知识库限定问答范围（可选）"
+            allowClear
+            style={{ width: '100%' }}
+          />
+        </div>
         <div
           ref={listRef}
-          style={{ height: 460, overflowY: 'auto', padding: '4px 0' }}
+          style={{ height: 400, overflowY: 'auto', padding: '4px 0' }}
         >
           {messages.length === 0 && (
             <div style={{ textAlign: 'center', padding: '80px 0', color: 'var(--ink-ghost)' }}>
               <ExperimentOutlined style={{ fontSize: 48, marginBottom: 16, display: 'block' }} />
               <Typography.Text style={{ color: 'var(--ink-faint)', fontFamily: 'var(--font-serif)', fontSize: 15 }}>
-                输入问题，AI 将基于知识库为你解答
+                {selectedKB ? '输入问题，AI 将基于所选知识库为你解答' : '选择知识库或直接提问'}
               </Typography.Text>
             </div>
           )}
           {messages.map((msg, i) => (
-            <ChatMessage key={i} role={msg.role} content={msg.content} />
+            <ChatMessage key={i} role={msg.role} content={msg.content} sources={msg.sources} />
           ))}
         </div>
       </Card>

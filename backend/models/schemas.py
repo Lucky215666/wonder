@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Any, List, Literal, Optional
 from pydantic import BaseModel
 
 
@@ -71,6 +71,9 @@ class KnowledgeConfig(BaseModel):
 
 class KnowledgeQARequest(BaseModel):
     question: str
+    knowledge_base_id: Optional[str] = None
+    knowledge_base_readme: str = ""
+    global_profile: str = ""
     doc_ids: Optional[List[str]] = None
     top_k_docs: int = 3
     top_k_chunks: int = 5
@@ -103,3 +106,44 @@ class DocumentDetailResponse(BaseModel):
     todo_list: str
     chunk_count: int
     total_tokens: int
+
+
+class GatewayAnalysisRequest(BaseModel):
+    doc_id: str
+    file_name: str
+    file_type: str = ""
+    text: str
+    knowledge_base_id: Optional[str] = None
+    knowledge_base_readme: str = ""
+    global_profile: str = ""
+    max_chars: int = 7000
+    overlap: int = 500
+
+
+class GatewayAnalysisResponse(BaseModel):
+    doc_id: str
+    file_name: str
+    status: Literal["ok", "partial"]
+    failed_agents: List[str] = []
+    reading_card: str
+    relation_analysis: str
+    writing_materials: str
+    todo_list: str
+    summary: str
+    tags: List[str] = []
+    fit_score: Optional[float] = None
+    placement: Optional[str] = None
+    recommended_action: Optional[str] = None
+    readme_suggestions: List[dict] = []
+    source_chunks: List[str] = []
+
+
+class KnowledgeIndexRequest(BaseModel):
+    doc_id: str
+    knowledge_base_id: str
+    file_name: str
+    file_path: str = ""
+    chunks: List[str]
+    summary: str
+    analysis_result: dict
+    tags: List[str] = []

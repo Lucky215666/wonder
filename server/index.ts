@@ -1,75 +1,58 @@
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { StorageService } from './services/storage'
-import { LLMService } from './services/llm'
-import { analysisRoutes } from './routes/analysis'
-import { knowledgeRoutes } from './routes/knowledge'
-import { historyRoutes } from './routes/history'
-import { configRoutes } from './routes/config'
-import { filesRoutes } from './routes/files'
-import path from 'path'
-import fs from 'fs'
+import { cwd } from 'node:process'
+import path from 'node:path'
+import { StorageService } from './services/storage.js'
+import { LLMService } from './services/llm.js'
+import { analysisRoutes } from './routes/analysis.js'
+import { knowledgeRoutes } from './routes/knowledge.js'
+import { knowledgeBaseRoutes } from './routes/knowledge-bases.js'
+import { historyRoutes } from './routes/history.js'
+import { configRoutes } from './routes/config.js'
+import { filesRoutes } from './routes/files.js'
+import { PythonBackendClient } from './services/python-backend.js'
+import { qaRoutes } from './routes/qa.js'
+import { serveStatic } from '@hono/node-server/serve-static'
 
-const dataDir = process.env.DATA_DIR || path.join(process.cwd(), 'data')
+const dataDir = process.env.DATA_DIR || path.join(cwd(), 'data')
 const storage = StorageService.create(dataDir)
 const llmService = new LLMService(storage)
+const pythonBackend = new PythonBackendClient()
 
 const app = new Hono()
-app.use('/*', cors())
+
+app.use('*', cors())
 
 app.route('/api/analysis', analysisRoutes(storage, llmService))
-app.route('/api/knowledge', knowledgeRoutes(storage, llmService))
+app.route('/api/knowledge', knowledgeRoutes(storage, pythonBackend))
+app.route('/api/knowledge-bases', knowledgeBaseRoutes(storage, llmService))
 app.route('/api/history', historyRoutes(storage))
 app.route('/api/config', configRoutes(storage))
 app.route('/api/files', filesRoutes())
+app.route('/api/qa', qaRoutes(storage, pythonBackend))
 
 app.get('/api/health', (c) => c.json({ status: 'ok' }))
-
+app.get('/api/health/ai-core', async (c) => {
+  const ok = await pythonBackend.health()
+  return c.json({ status: ok ? 'ok' : 'unavailable' }, ok ? 200 : 503)
+})
 app.get('/api/health/llm', async (c) => {
-  const ok = await llmService.healthCheck()
-  return ok
-    ? c.json({ status: 'ok' })
-    : c.json({ status: 'error', message: 'LLM API 不可达' }, 502)
+  const result = await llmService.healthCheck()
+  return c.json(result)
 })
 
-// Serve frontend static files from dist/renderer
-const rendererDir = path.resolve(__dirname, '../dist/renderer')
+app.use(
+  '/*',
+  serveStatic({
+    root: '../dist/renderer',
+    rewriteRequestPath: (p) => p,
+  })
+)
 
-const mimeTypes: Record<string, string> = {
-  '.html': 'text/html',
-  '.js': 'application/javascript',
-  '.css': 'text/css',
-  '.json': 'application/json',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.svg': 'image/svg+xml',
-  '.ico': 'image/x-icon',
-  '.woff': 'font/woff',
-  '.woff2': 'font/woff2',
-}
+app.get('*', serveStatic({ root: '../dist/renderer', path: 'index.html' }))
 
-app.get('*', (c) => {
-  const urlPath = new URL(c.req.url).pathname
-  const filePath = path.join(rendererDir, urlPath)
-
-  // Try to serve the exact file
-  if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
-    const ext = path.extname(filePath)
-    const mime = mimeTypes[ext] || 'application/octet-stream'
-    const content = fs.readFileSync(filePath)
-    return new Response(content, {
-      headers: { 'Content-Type': mime },
-    })
-  }
-
-  // SPA fallback: serve index.html
-  const indexPath = path.join(rendererDir, 'index.html')
-  const html = fs.readFileSync(indexPath, 'utf-8')
-  return c.html(html)
-})
-
-const port = parseInt(process.env.PORT || '9800')
-serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, () => {
-  console.log(`Wonder server running on http://127.0.0.1:${port}`)
+const port = parseInt(process.env.PORT || '9800', 10)
+serve({ fetch: app.fetch, hostname: '127.0.0.1', port }, (info) => {
+  console.log('Wonder server running at http://127.0.0.1:' + info.port)
 })

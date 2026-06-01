@@ -17,6 +17,7 @@ export const api = {
   get: <T>(path: string) => request<T>('GET', path),
   post: <T>(path: string, body?: unknown) => request<T>('POST', path, body),
   put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body),
+  patch: <T>(path: string, body?: unknown) => request<T>('PATCH', path, body),
   delete: <T>(path: string) => request<T>('DELETE', path),
 
   parseFile: async (file: File): Promise<{ text: string; fileName: string }> => {
@@ -70,10 +71,10 @@ export const api = {
       const lines = buffer.split('\n')
       buffer = lines.pop() ?? ''
 
-      for (const line of lines) {
-        if (line.startsWith('event: ')) {
-          const event = line.slice(7).trim()
-          const dataLine = lines[lines.indexOf(line) + 1]
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].startsWith('event: ')) {
+          const event = lines[i].slice(7).trim()
+          const dataLine = lines[i + 1]
           if (dataLine?.startsWith('data: ')) {
             onEvent(event, dataLine.slice(6))
           }

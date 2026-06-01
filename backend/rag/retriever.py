@@ -20,56 +20,53 @@ class RAGRetriever:
     def retrieve(
         self,
         query: str,
+        knowledge_base_id: Optional[str] = None,
         doc_ids: Optional[List[str]] = None,
         top_k_docs: int = 3,
         top_k_chunks: int = 5,
         max_context_tokens: int = 8000
     ) -> RetrievalResult:
-        """两层检索：先查摘要定位文档，再查内容分块"""
-        # 1. 查询 embedding
         query_embedding = self.embedding.embed_single(query)
 
-        # 2. 第一层：摘要检索
-        where_filter: Dict[str, Any] = {"chunk_type": "summary"}
+        summary_filters: List[Dict[str, Any]] = [{"chunk_type": "summary"}]
+        if knowledge_base_id:
+            summary_filters.append({"knowledge_base_id": knowledge_base_id})
         if doc_ids:
-            where_filter["doc_id"] = {"$in": doc_ids}
+            summary_filters.append({"doc_id": {"$in": doc_ids}})
+        where_filter = summary_filters[0] if len(summary_filters) == 1 else {"$and": summary_filters}
 
         summaries_result = self.storage.query_collection(
             query_embeddings=[query_embedding],
             n_results=top_k_docs,
-            where=where_filter
+            where=where_filter,
         )
 
-        # 3. 第二层：内容检索
         summary_metas = summaries_result.get("metadatas", [[]])[0] if summaries_result.get("metadatas") else []
-        if summary_metas:
-            matched_doc_ids = list(set(
-                m["doc_id"] for m in summary_metas
-            ))
-            content_where = {
-                "chunk_type": "content",
-                "doc_id": {"$in": matched_doc_ids}
-            }
+        matched_doc_ids = list(dict.fromkeys(m["doc_id"] for m in summary_metas if "doc_id" in m))
 
+        if matched_doc_ids:
+            content_filters: List[Dict[str, Any]] = [
+                {"chunk_type": "content"},
+                {"doc_id": {"$in": matched_doc_ids}},
+            ]
+            if knowledge_base_id:
+                content_filters.insert(1, {"knowledge_base_id": knowledge_base_id})
+            content_where = {"$and": content_filters}
             chunks_result = self.storage.query_collection(
                 query_embeddings=[query_embedding],
                 n_results=top_k_chunks,
-                where=content_where
+                where=content_where,
             )
         else:
             chunks_result = {"documents": [[]], "metadatas": [[]]}
-            matched_doc_ids = []
 
-        # 4. 组装上下文
-        context = self._build_context(
-            summaries_result, chunks_result, max_context_tokens
-        )
+        context = self._build_context(summaries_result, chunks_result, max_context_tokens)
 
         return RetrievalResult(
             summaries=summaries_result.get("documents", [[]])[0] if summaries_result.get("documents") else [],
             chunks=chunks_result.get("documents", [[]])[0] if chunks_result.get("documents") else [],
             context=context,
-            source_doc_ids=matched_doc_ids
+            source_doc_ids=matched_doc_ids,
         )
 
     def _build_context(self, summaries: Dict, chunks: Dict,
