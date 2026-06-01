@@ -2,7 +2,8 @@
 
 面向科研场景的 AI 文献分析桌面应用。支持上传论文与技术文档，通过多 Agent 协作自动生成阅读卡片、关联分析、写作素材和任务清单，并提供 RAG 知识库、文献发现、引用网络等辅助工具。
 
-<img width="1200" height="820" alt="screenshot" src="https://github.com/user-attachments/assets/cd3ab1f3-9c14-4f48-911a-5795ed1e1d29" />
+<img width="1234" height="747" alt="image" src="https://github.com/user-attachments/assets/3f20ec2b-c6e5-4c7f-ba9b-f9227017d84a" />
+
 
 ## 技术栈
 
