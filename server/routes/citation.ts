@@ -70,6 +70,7 @@ export function citationRoutes(storage: StorageService) {
       // Fetch seed paper (raw for referenced_works, mapped for response)
       const seedRaw = await fetchWorkRaw(paperId)
       const seed = mapWorkToPaper(seedRaw)
+      if (!seed) return c.json({ error: '论文数据无效' }, 404)
       cachePaperNode(storage, seed)
 
       const nodesMap = new Map<string, Paper>()

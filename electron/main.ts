@@ -42,7 +42,7 @@ async function createWindow() {
 
   // Load server in-process (no child process spawn — avoids system Node dependency)
   try {
-    require(path.join(__dirname, '../dist-server/index.js'))
+    require(path.join(__dirname, '../dist-server/server/index.js'))
   } catch (err) {
     console.error('Failed to start server:', err)
     app.quit()

@@ -3,12 +3,12 @@
     "target": "ES2020",
     "module": "commonjs",
     "outDir": "dist-server",
-    "rootDir": "server",
+    "rootDir": ".",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "isolatedModules": true
   },
-  "include": ["server/**/*"]
+  "include": ["server/**/*", "src/types/config.ts"]
 }
