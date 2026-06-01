@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, screen } from 'electron'
 import path from 'path'
 import net from 'net'
+import fs from 'fs'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -39,6 +40,20 @@ async function createWindow() {
   // Set env vars before loading server module
   process.env.PORT = String(port)
   process.env.DATA_DIR = path.join(app.getPath('userData'), 'data')
+
+  // Extract static files from asar to userData so serveStatic can read them
+  const staticDir = path.join(app.getPath('userData'), 'static')
+  const rendererSource = app.isPackaged
+    ? path.join(process.resourcesPath, 'app.asar.unpacked', 'dist', 'renderer')
+    : path.join(app.getAppPath(), 'dist', 'renderer')
+  const versionFile = path.join(staticDir, '.version')
+  const currentVersion = app.getVersion()
+  if (!fs.existsSync(staticDir) || !fs.existsSync(versionFile) || fs.readFileSync(versionFile, 'utf-8') !== currentVersion) {
+    fs.rmSync(staticDir, { recursive: true, force: true })
+    fs.cpSync(rendererSource, staticDir, { recursive: true })
+    fs.writeFileSync(versionFile, currentVersion)
+  }
+  process.env.STATIC_DIR = staticDir
 
   // Load server in-process (no child process spawn — avoids system Node dependency)
   try {

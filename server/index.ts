@@ -111,7 +111,7 @@ app.get('/api/health/llm', async (c) => {
   }
 })
 
-const rendererDir = path.join(__dirname, '../../dist/renderer')
+const rendererDir = process.env.STATIC_DIR || path.join(__dirname, '../../dist/renderer')
 
 app.use(
   '/*',

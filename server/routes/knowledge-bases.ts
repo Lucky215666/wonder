@@ -134,6 +134,37 @@ export function knowledgeBaseRoutes(storage: StorageService, python: PythonBacke
         storage.updateDocumentLifecycle(docId, 'index_failed')
         storage.updateDocumentIndexStatus(docId, 'index_failed', errorMsg)
       })
+
+      // Generate README suggestions in background (fire-and-forget)
+      const kb = storage.getKnowledgeBase(kbId)
+      if (kb?.readme) {
+        let chatConfig: Record<string, unknown> | undefined
+        try {
+          const raw = storage.getConfig('appConfig')
+          if (raw) chatConfig = JSON.parse(raw).chat || undefined
+        } catch { /* ignore */ }
+
+        python.post('/api/readme-advisor/generate', {
+          readme: kb.readme,
+          document_summary: doc.summary ?? '',
+          reading_card: doc.reading_card ?? '',
+          chat_config: chatConfig,
+        }).then((resp: unknown) => {
+          const data = resp as { suggestions?: Array<{ section: string; suggestion: string; reason?: string }> }
+          if (Array.isArray(data.suggestions)) {
+            for (const sug of data.suggestions) {
+              storage.addReadmeSuggestion({
+                id: randomUUID(),
+                knowledgeBaseId: kbId,
+                documentId: docId,
+                section: sug.section,
+                suggestion: sug.suggestion,
+                reason: sug.reason,
+              })
+            }
+          }
+        }).catch(() => { /* silently ignore — suggestions are non-critical */ })
+      }
     }
 
     return c.json({ success: true })
