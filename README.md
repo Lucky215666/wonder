@@ -2,6 +2,13 @@
 
 面向科研场景的 AI 文献分析桌面应用。支持上传论文与技术文档，通过多 Agent 协作自动生成阅读卡片、关联分析、写作素材和任务清单，并提供 RAG 知识库、文献发现、引用网络等辅助工具。
 
+![Electron](https://img.shields.io/badge/Electron-36-47848F?logo=electron&logoColor=white)
+![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
+![TypeScript](https://img.shields.io/badge/TypeScript-6-3178C6?logo=typescript&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)
+![SQLite](https://img.shields.io/badge/SQLite-003B57?logo=sqlite&logoColor=white)
+![Vite](https://img.shields.io/badge/Vite-8-646CFF?logo=vite&logoColor=white)
+
 <img width="1234" height="747" alt="image" src="https://github.com/user-attachments/assets/3f20ec2b-c6e5-4c7f-ba9b-f9227017d84a" />
 
 
@@ -34,23 +41,23 @@
 
 ### 前端（桌面客户端）
 
-**单篇分析** — 上传 PDF / DOCX / TXT / MD，一键生成四维分析报告（阅读卡片、关联分析、写作素材、任务清单），支持流式输出预览。
+**单篇分析** — 上传 PDF / DOCX / TXT / MD，一键生成四维分析报告（阅读卡片、关联分析、写作素材、任务清单），支持流式输出预览，分析完成后可一键收录到知识库。
 
-**批量矩阵** — 批量上传多篇文献，生成交叉对比矩阵，横向比较方法、数据集、指标等维度。
+**批量矩阵** — 批量上传多篇文献，自动生成交叉对比矩阵，横向比较方法、数据集、指标等维度，支持队列管理和进度追踪。
 
 **文献发现** — 通过 Semantic Scholar 搜索学术论文，查看摘要、引用数、年份等元数据，可一键复制摘要用于分析。
 
-**引用网络** — 输入论文 ID，构建引用关系图谱（Canvas 渲染），支持 1-2 层展开，点击节点查看详情或继续展开。
+**引用网络** — 输入论文 ID，构建引用关系图谱（Canvas 渲染），支持 1-2 层展开，点击节点查看详情或继续展开，支持 OpenAlex 数据源。
 
 **追溯问答** — 两种模式：
 - 本地模式：基于已分析的历史文献进行多轮追问
 - 知识库模式（RAG）：基于知识库中的文档集合进行检索增强问答，答案附带来源片段
 
-**知识库** — 文档上传 → 自动分块 → 向量入库，支持搜索知识片段、查看文档详情、删除管理。
+**知识库** — 文档上传 → 自动分块 → 向量入库，支持搜索知识片段、查看文档详情、删除管理。支持多知识库隔离。
 
 **历史记录** — 浏览所有已分析记录，查看完整报告，支持删除。
 
-**设置** — 配置 Chat Provider、Embedding Provider、研究偏好、知识库参数。
+**设置** — 配置 Chat Provider、Embedding Provider、研究偏好、知识库参数。支持 Anthropic、OpenAI 兼容、MiniMax 等多个 Provider。
 
 ### 后端（Python AI Core）
 
@@ -77,6 +84,11 @@
 |------|------|------|
 | POST | `/api/analysis/single` | 单篇分析（SSE 流式） |
 | POST | `/api/qa` | 追溯问答 |
+| POST | `/api/batch/analyze` | 批量分析 |
+| GET | `/api/batch/{id}` | 批量任务状态 |
+| POST | `/api/discovery/search` | 文献发现搜索 |
+| GET | `/api/discovery/paper/{id}` | 论文详情 |
+| GET | `/api/citation/graph/{id}` | 引用网络图谱 |
 | GET | `/api/history` | 历史记录列表 |
 | GET | `/api/history/{id}` | 历史记录详情 |
 | DELETE | `/api/history/{id}` | 删除历史记录 |
@@ -86,11 +98,12 @@
 | DELETE | `/api/knowledge/documents/{id}` | 删除文档 |
 | POST | `/api/knowledge/ask` | RAG 问答 |
 | POST | `/api/knowledge/search` | 知识片段搜索 |
+| GET | `/api/knowledge-bases` | 知识库列表 |
+| POST | `/api/knowledge-bases` | 创建知识库 |
 | GET | `/api/config` | 读取配置 |
 | PUT | `/api/config` | 更新配置 |
 | GET | `/api/health` | Node 健康检查 |
 | GET | `/api/health/ai-core` | Python AI Core 健康检查 |
-| GET | `/api/health/llm` | Chat Provider 健康检查 |
 | POST | `/api/config/health/chat` | Chat Provider 连通性检查 |
 | POST | `/api/config/health/embedding` | Embedding Provider 连通性检查 |
 
@@ -102,34 +115,35 @@ wonder/
 │   ├── pages/                      # 页面组件
 │   ├── components/                 # 通用组件
 │   ├── stores/                     # Zustand 状态管理
+│   ├── lib/
+│   │   ├── batch/                  # 批量分析逻辑（队列、矩阵）
+│   │   └── discovery/              # 文献发现与引用图谱
 │   ├── types/                      # TypeScript 类型定义
-│   │   ├── config.ts               # NormalizedAppConfig
-│   │   └── analysis.ts             # AnalysisResult, AppConfig (legacy)
-│   └── services/                   # API 客户端
+│   └── styles/                     # 全局样式
 ├── server/                         # Node/Hono 网关
-│   ├── routes/                     # API 路由（analysis, qa, config, ...）
-│   ├── services/                   # storage, python-backend
+│   ├── routes/                     # API 路由
+│   │   ├── analysis.ts             # 单篇分析（SSE 流式）
+│   │   ├── batch.ts                # 批量分析
+│   │   ├── citation.ts             # 引用网络
+│   │   ├── discovery.ts            # 文献发现
+│   │   ├── qa.ts                   # 追溯问答
+│   │   ├── knowledge-bases.ts      # 知识库管理
+│   │   └── config.ts               # 配置管理
+│   ├── services/                   # storage, python-backend, openalex
 │   ├── config/                     # normalize.ts — 配置兼容层
-│   ├── db/                         # SQLite schema
-│   └── index.ts                    # 入口
+│   └── db/                         # SQLite schema
 ├── backend/                        # Python AI Core
 │   ├── api/                        # FastAPI 路由
 │   ├── agents/                     # 多 Agent 系统
 │   ├── core/
 │   │   ├── providers/              # Provider 适配层
-│   │   │   ├── base.py             # ChatProvider, EmbeddingProvider Protocol
-│   │   │   ├── anthropic.py        # Anthropic 适配器
-│   │   │   ├── openai_compatible.py# OpenAI 兼容适配器
-│   │   │   └── factory.py          # Provider 工厂
-│   │   ├── config.py               # ConfigManager (JSON file)
-│   │   ├── embedding.py            # EmbeddingClient
-│   │   └── llm_client.py           # Legacy + provider-aware call_llm
+│   │   ├── config.py               # ConfigManager
+│   │   └── embedding.py            # EmbeddingClient
 │   ├── rag/                        # RAG 检索与索引
-│   ├── models/                     # Pydantic 数据模型
-│   └── main.py                     # FastAPI 入口
+│   └── models/                     # Pydantic 数据模型
+├── electron/                       # Electron 主进程
 ├── tests/server/                   # Node 测试
 ├── backend/tests/                  # Python 测试
-├── data/                           # 运行时数据
 └── package.json
 ```
 
