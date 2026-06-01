@@ -84,8 +84,8 @@ function TitleBar({ sidebarVisible, onToggleSidebar }: { sidebarVisible: boolean
           </button>
         </Tooltip>
         <div className="wonder-titlebar-logo">
-          <img src="/patternLogo.png" alt="Wonder" className="wonder-titlebar-logo-img" />
-          <span className="wonder-titlebar-name">Wonder</span>
+          <img src="/patternGreen.png" alt="Wonder pattern" className="wonder-titlebar-logo-img" />
+          <img src="/textGreen.png" alt="Wonder" className="wonder-titlebar-text-logo" />
         </div>
       </div>
       {api?.isElectron && (
@@ -150,10 +150,10 @@ export default function App() {
             className="wonder-sider"
           >
             <div className="wonder-brand">
-              <img src="/patternLogo.png" alt="Wonder" className="wonder-brand-logo" />
+              <img src="/patternGreen.png" alt="Wonder pattern" className="wonder-brand-logo" />
               {!collapsed && (
                 <>
-                  <h1 className="wonder-brand-title">Wonder</h1>
+                  <img src="/textGreen.png" alt="Wonder" className="wonder-brand-text-logo" />
                   <p className="wonder-brand-subtitle">Academic Research</p>
                 </>
               )}
