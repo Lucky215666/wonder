@@ -15,7 +15,8 @@
       "@/*": ["./src/*"],
       "@server/*": ["./server/*"]
     },
-    "baseUrl": "."
+    "baseUrl": ".",
+    "ignoreDeprecations": "6.0"
   },
   "include": ["src/**/*", "server/**/*", "electron/**/*"],
   "exclude": ["node_modules", "dist"]
