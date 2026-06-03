@@ -25,3 +25,6 @@ src/types/*.js
 # IDE
 .vscode/
 .idea/
+
+# Claude Code
+.claude/
