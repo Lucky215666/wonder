@@ -22,7 +22,7 @@ export default function Discovery() {
 
   const {
     discoveryContext, setDiscoveryContext,
-    searchResults, searchLoading, hasSearched, searchPapers,
+    searchResults, searchLoading, hasSearched, searchError, searchPapers,
     candidateQueue, loadCandidates, saveCandidate,
     updateCandidateState, isInQueue, getCandidate,
   } = useDiscoveryStore()
@@ -265,10 +265,19 @@ export default function Discovery() {
       <div className="wonder-discovery-layout">
         <div className="wonder-discovery-sidebar">
           {rankedResults.length === 0 && !searchLoading ? (
-            <Empty
-              description={<span style={{ color: 'var(--ink-faint)', fontFamily: 'var(--font-serif)' }}>{hasSearched ? '未找到相关论文，请尝试其他关键词' : '输入关键词开始搜索'}</span>}
-              style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, minHeight: 300 }}
-            />
+            hasSearched && searchError ? (
+              <Empty
+                description={<span style={{ color: 'var(--color-error, #ff4d4f)' }}>搜索失败: {searchError}</span>}
+                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, minHeight: 300 }}
+              >
+                <Button onClick={() => handleSearch()}>重试</Button>
+              </Empty>
+            ) : (
+              <Empty
+                description={<span style={{ color: 'var(--ink-faint)', fontFamily: 'var(--font-serif)' }}>{hasSearched ? '未找到相关论文，请尝试其他关键词' : '输入关键词开始搜索'}</span>}
+                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, minHeight: 300 }}
+              />
+            )
           ) : (
             rankedResults.map(({ paper, score, reason }) => (
               <div
