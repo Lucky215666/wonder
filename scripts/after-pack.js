@@ -1,11 +1,19 @@
 const { execSync } = require('child_process')
 const path = require('path')
+const fs = require('fs')
 
 exports.default = async function (context) {
   const exePath = path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.exe`)
   const rcedit = path.join(__dirname, '..', 'node_modules', 'electron-winstaller', 'vendor', 'rcedit.exe')
   const iconPath = path.join(__dirname, '..', 'public', 'icon.ico')
   const version = context.packager.appInfo.version
+
+  if (!fs.existsSync(rcedit)) {
+    throw new Error(
+      `[after-pack] Missing rcedit at ${rcedit}. ` +
+      `Install "electron-winstaller" as a devDependency to provide it.`
+    )
+  }
 
   try {
     execSync(`"${rcedit}" "${exePath}" ` +
