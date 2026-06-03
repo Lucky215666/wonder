@@ -4,6 +4,7 @@ import { Card, Typography, Spin, Button } from 'antd'
 import { ArrowLeftOutlined, FileTextOutlined } from '@ant-design/icons'
 import { api, ApiError } from '../services/api'
 import AnalysisResult from '../components/AnalysisResult'
+import { normalizeAnalysisResult } from '../lib/analysis/normalize'
 import type { AnalysisResult as AnalysisResultType } from '../types/analysis'
 
 interface DocumentRow {
@@ -31,51 +32,8 @@ function parseAnalysisResult(doc: DocumentRow): AnalysisResultType | null {
   if (doc.analysisResult) {
     try {
       const raw = JSON.parse(doc.analysisResult)
-      // Nested format: { literature, relation, writing, readmeSuggestions }
-      if (raw && typeof raw === 'object' && raw.literature) {
-        const lit = raw.literature || {}
-        const rel = raw.relation || {}
-        const wri = raw.writing || {}
-        return {
-          summary: lit.summary || '',
-          readingCard: lit.readingCard || '',
-          knowledgeBaseFitScore: lit.fitScore,
-          recommendedAction: lit.action,
-          tags: lit.tags,
-          relationAnalysis: rel.relationAnalysis,
-          relationToExistingDocs: rel.relationToExistingDocs,
-          writingAssets: wri.writingAssets,
-          readmeUpdateSuggestions: raw.readmeSuggestions,
-        } as AnalysisResultType
-      }
-      // Flat format
-      if (raw && typeof raw === 'object' && ('reading_card' in raw || 'readingCard' in raw || 'summary' in raw)) {
-        const fitScore = (raw.fit_score as number) ?? (raw.knowledgeBaseFitScore as number) ?? undefined
-        const fitReason = (raw.fit_reason as string) || (raw.fitReason as string) || undefined
-        const relationType = (raw.relation_type as string) || (raw.relationType as string) || undefined
-        return {
-          summary: (raw.summary as string) || '',
-          readingCard: (raw.reading_card as string) || (raw.readingCard as string) || '',
-          knowledgeBaseFitScore: fitScore,
-          fitReason,
-          relationToExistingDocs: raw.relationToExistingDocs || (relationType ? {
-            type: relationType,
-            reason: fitReason || '',
-            relatedDocumentIds: [],
-          } : undefined),
-          relationAnalysis: (raw.relation_analysis as string) || (raw.relationAnalysis as string) || undefined,
-          writingMaterials: (raw.writing_materials as string) || (raw.writingMaterials as string) || undefined,
-          todoList: (raw.todo_list as string) || (raw.todoList as string) || undefined,
-          noveltyForKnowledgeBase: raw.noveltyForKnowledgeBase as string | undefined,
-          suggestedPlacement: raw.suggestedPlacement as AnalysisResultType['suggestedPlacement'],
-          writingAssets: raw.writingAssets as AnalysisResultType['writingAssets'],
-          readmeUpdateSuggestions: raw.readmeUpdateSuggestions as AnalysisResultType['readmeUpdateSuggestions'],
-          matchScore: fitScore,
-          matchReason: fitReason,
-          tags: raw.tags as string[] | undefined,
-          recommendedAction: (raw.recommended_action as string) || (raw.recommendedAction as string) || undefined,
-        } as AnalysisResultType
-      }
+      const normalized = normalizeAnalysisResult(raw)
+      if (normalized) return normalized
       // Unknown structured format — pass through
       return raw as AnalysisResultType
     } catch {

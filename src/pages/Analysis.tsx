@@ -10,6 +10,7 @@ import AnalysisResult from '../components/AnalysisResult'
 import { useAnalysisStore } from '../stores/analysis'
 import { useKnowledgeStore } from '../stores/knowledge'
 import { api } from '../services/api'
+import { normalizeAnalysisResult } from '../lib/analysis/normalize'
 import type { AnalysisResult as AnalysisResultType } from '../types/analysis'
 
 interface CandidateInfo {
@@ -21,77 +22,6 @@ interface CandidateInfo {
   authors: string | null
   url: string | null
   knowledge_base_id: string | null
-}
-
-/**
- * Normalize Python backend snake_case output to the camelCase AnalysisResult type.
- * Also handles the legacy nested { literature, relation, writing } format.
- */
-function normalizeAnalysisResult(raw: Record<string, unknown>): AnalysisResultType {
-  // Legacy nested format
-  if (raw && typeof raw === 'object' && 'literature' in raw && typeof raw.literature === 'object' && raw.literature) {
-    const lit = raw.literature as Record<string, unknown>
-    const rel = (raw.relation || {}) as Record<string, unknown>
-    const wri = (raw.writing || {}) as Record<string, unknown>
-    return {
-      summary: (lit.summary as string) || '',
-      paperTitle: (raw.paperTitle as string) || (raw.paper_title as string) || undefined,
-      readingCard: (lit.readingCard as string) || '',
-      knowledgeBaseFitScore: lit.fitScore as number | undefined,
-      fitReason: lit.fitReason as string | undefined,
-      recommendedAction: lit.action as AnalysisResultType['recommendedAction'],
-      tags: lit.tags as string[] | undefined,
-      relationToExistingDocs: rel.relationToExistingDocs as AnalysisResultType['relationToExistingDocs'],
-      relationAnalysis: rel.relationAnalysis as string | undefined,
-      writingAssets: wri.writingAssets as AnalysisResultType['writingAssets'],
-      writingMaterials: wri.writingMaterials as string | undefined,
-      readmeUpdateSuggestions: raw.readmeSuggestions as AnalysisResultType['readmeUpdateSuggestions'],
-      todoList: (raw.todo_list as string) || (lit.todoList as string) || undefined,
-      matchScore: lit.matchScore as number | undefined,
-      matchReason: lit.matchReason as string | undefined,
-    }
-  }
-
-  // Flat format — supports both snake_case (Python direct) and camelCase (SSE complete event)
-  const fitScore = (raw.fit_score as number) ?? (raw.knowledgeBaseFitScore as number) ?? undefined
-  const fitReason = (raw.fit_reason as string) || (raw.fitReason as string) || undefined
-  const relationType = (raw.relation_type as string) || (raw.relationType as string) || undefined
-
-  return {
-    summary: (raw.summary as string) || '',
-    paperTitle: (raw.paperTitle as string) || (raw.paper_title as string) || undefined,
-    readingCard: (raw.reading_card as string) || (raw.readingCard as string) || '',
-    knowledgeBaseFitScore: fitScore,
-    fitReason,
-    relationToExistingDocs: relationType ? {
-      type: relationType as AnalysisResultType['relationToExistingDocs'] extends { type: infer T } ? T : never,
-      reason: fitReason || '',
-      relatedDocumentIds: [],
-    } : undefined,
-    relationAnalysis: (raw.relation_analysis as string) || (raw.relationAnalysis as string) || undefined,
-    writingMaterials: (raw.writing_materials as string) || (raw.writingMaterials as string) || undefined,
-    todoList: (raw.todo_list as string) || (raw.todoList as string) || undefined,
-    matchScore: fitScore,
-    matchReason: fitReason,
-    tags: raw.tags as string[] | undefined,
-    recommendedAction: (raw.recommended_action as string) || (raw.recommendedAction as string) || undefined,
-    suggestedPlacement: (raw.suggestedPlacement as AnalysisResultType['suggestedPlacement'])
-      || (raw.suggested_placement ? {
-        subDirection: (raw.suggested_placement as { sub_direction: string; tags: string[] }).sub_direction || '',
-        tags: (raw.suggested_placement as { sub_direction: string; tags: string[] }).tags || [],
-      } : undefined),
-    noveltyForKnowledgeBase: (raw.noveltyForKnowledgeBase as string) || (raw.novelty_for_kb as string) || undefined,
-    readmeUpdateSuggestions: (raw.readmeUpdateSuggestions as AnalysisResultType['readmeUpdateSuggestions'])
-      || (raw.readme_suggestions as AnalysisResultType['readmeUpdateSuggestions']) || undefined,
-    writingAssets: (raw.writingAssets as AnalysisResultType['writingAssets'])
-      || (raw.writing_assets ? {
-        usableClaims: (raw.writing_assets as { usable_claims: string[] }).usable_claims || [],
-        methodReferences: (raw.writing_assets as { method_references: string[] }).method_references || [],
-        theoryReferences: (raw.writing_assets as { theory_references: string[] }).theory_references || [],
-        possibleLiteratureReviewUse: (raw.writing_assets as { possible_literature_review_use: string }).possible_literature_review_use || '',
-        limitationsOrCritique: (raw.writing_assets as { limitations_or_critique: string }).limitations_or_critique || '',
-      } : undefined),
-  } as AnalysisResultType
 }
 
 export default function Analysis() {

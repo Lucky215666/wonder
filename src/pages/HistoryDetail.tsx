@@ -4,6 +4,7 @@ import { Card, Typography, Spin, Button } from 'antd'
 import { ArrowLeftOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { api, ApiError } from '../services/api'
 import AnalysisResult from '../components/AnalysisResult'
+import { normalizeAnalysisResult } from '../lib/analysis/normalize'
 import type { AnalysisResult as AnalysisResultType } from '../types/analysis'
 
 export default function HistoryDetail() {
@@ -49,66 +50,7 @@ export default function HistoryDetail() {
   let parsed: AnalysisResultType | unknown
   try {
     const raw = JSON.parse(data.result)
-    // Transform nested result structure to flat AnalysisResult
-    if (raw && typeof raw === 'object' && raw.literature) {
-      const lit = raw.literature || {}
-      const rel = raw.relation || {}
-      const wri = raw.writing || {}
-      parsed = {
-        summary: lit.summary || '',
-        paperTitle: (raw.paperTitle as string) || (raw.paper_title as string) || undefined,
-        readingCard: lit.readingCard || '',
-        knowledgeBaseFitScore: lit.fitScore,
-        recommendedAction: lit.action,
-        tags: lit.tags,
-        relationAnalysis: rel.relationAnalysis,
-        relationToExistingDocs: rel.relationToExistingDocs,
-        writingAssets: wri.writingAssets,
-        readmeUpdateSuggestions: raw.readmeSuggestions,
-      } as AnalysisResultType
-    } else if (raw && typeof raw === 'object' && ('reading_card' in raw || 'readingCard' in raw || 'summary' in raw)) {
-      // Flat format — supports both snake_case (Python direct) and camelCase (old records)
-      const fitScore = (raw.fit_score as number) ?? (raw.knowledgeBaseFitScore as number) ?? undefined
-      const fitReason = (raw.fit_reason as string) || (raw.fitReason as string) || undefined
-      const relationType = (raw.relation_type as string) || (raw.relationType as string) || undefined
-      parsed = {
-        summary: (raw.summary as string) || '',
-        paperTitle: (raw.paperTitle as string) || (raw.paper_title as string) || undefined,
-        readingCard: (raw.reading_card as string) || (raw.readingCard as string) || '',
-        knowledgeBaseFitScore: fitScore,
-        fitReason,
-        relationToExistingDocs: raw.relationToExistingDocs || (relationType ? {
-          type: relationType,
-          reason: fitReason || '',
-          relatedDocumentIds: [],
-        } : undefined),
-        relationAnalysis: (raw.relation_analysis as string) || (raw.relationAnalysis as string) || undefined,
-        writingMaterials: (raw.writing_materials as string) || (raw.writingMaterials as string) || undefined,
-        todoList: (raw.todo_list as string) || (raw.todoList as string) || undefined,
-        noveltyForKnowledgeBase: (raw.noveltyForKnowledgeBase as string) || (raw.novelty_for_kb as string) || undefined,
-        suggestedPlacement: (raw.suggestedPlacement as AnalysisResultType['suggestedPlacement'])
-          || (raw.suggested_placement ? {
-            subDirection: (raw.suggested_placement as { sub_direction: string; tags: string[] }).sub_direction || '',
-            tags: (raw.suggested_placement as { sub_direction: string; tags: string[] }).tags || [],
-          } : undefined),
-        writingAssets: (raw.writingAssets as AnalysisResultType['writingAssets'])
-          || (raw.writing_assets ? {
-            usableClaims: (raw.writing_assets as { usable_claims: string[] }).usable_claims || [],
-            methodReferences: (raw.writing_assets as { method_references: string[] }).method_references || [],
-            theoryReferences: (raw.writing_assets as { theory_references: string[] }).theory_references || [],
-            possibleLiteratureReviewUse: (raw.writing_assets as { possible_literature_review_use: string }).possible_literature_review_use || '',
-            limitationsOrCritique: (raw.writing_assets as { limitations_or_critique: string }).limitations_or_critique || '',
-          } : undefined),
-        readmeUpdateSuggestions: (raw.readmeUpdateSuggestions as AnalysisResultType['readmeUpdateSuggestions'])
-          || (raw.readme_suggestions as AnalysisResultType['readmeUpdateSuggestions']) || undefined,
-        matchScore: fitScore,
-        matchReason: fitReason,
-        tags: raw.tags as string[] | undefined,
-        recommendedAction: (raw.recommended_action as string) || (raw.recommendedAction as string) || undefined,
-      } as AnalysisResultType
-    } else {
-      parsed = raw as AnalysisResultType
-    }
+    parsed = normalizeAnalysisResult(raw) ?? raw
   } catch {
     parsed = data.result
   }
