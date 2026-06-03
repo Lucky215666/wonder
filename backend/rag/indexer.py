@@ -66,5 +66,7 @@ class DocumentIndexer:
 
         return doc_id
 
-    def delete_document(self, doc_id: str, knowledge_base_id: str | None = None):
+    def delete_document(self, doc_id: str, knowledge_base_id: str):
+        if not knowledge_base_id:
+            raise ValueError("knowledge_base_id is required when deleting a document from the vector store")
         self.storage.delete_from_collection(doc_id, knowledge_base_id)

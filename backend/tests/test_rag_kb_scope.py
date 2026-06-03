@@ -281,7 +281,7 @@ def test_delete_document_requires_knowledge_base_id():
     indexer = DocumentIndexer(storage, FakeEmbedding())
 
     with pytest.raises(ValueError, match="knowledge_base_id"):
-        indexer.delete_document("doc-1")
+        indexer.delete_document("doc-1", knowledge_base_id="")
 
     assert storage.deleted is None
 

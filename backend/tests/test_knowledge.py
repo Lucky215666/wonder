@@ -77,4 +77,4 @@ def test_document_deletion(test_storage, mock_embedding):
         }
     )
 
-    indexer.delete_document(doc_id)
+    indexer.delete_document(doc_id, knowledge_base_id="kb-1")

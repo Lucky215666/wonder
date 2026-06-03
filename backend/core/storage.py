@@ -37,17 +37,15 @@ class StorageManager:
             kwargs["where"] = where
         return self.collection.query(**kwargs)
 
-    def delete_from_collection(self, doc_id: str, knowledge_base_id: Optional[str] = None):
-        where: Dict[str, Any]
-        if knowledge_base_id:
-            where = {
-                "$and": [
-                    {"doc_id": doc_id},
-                    {"knowledge_base_id": knowledge_base_id},
-                ]
-            }
-        else:
-            where = {"doc_id": doc_id}
+    def delete_from_collection(self, doc_id: str, knowledge_base_id: str):
+        if not knowledge_base_id:
+            raise ValueError("knowledge_base_id is required when deleting vectors")
+        where = {
+            "$and": [
+                {"doc_id": doc_id},
+                {"knowledge_base_id": knowledge_base_id},
+            ]
+        }
         self.collection.delete(where=where)
 
     def close(self):
