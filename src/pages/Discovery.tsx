@@ -310,7 +310,7 @@ export default function Discovery() {
               <Space wrap style={{ marginBottom: 16 }}>
                 <Tag icon={<CalendarOutlined />}>{selected.year ?? '未知'}</Tag>
                 <Tag icon={<GlobalOutlined />}>引用 {selected.citationCount}</Tag>
-                {selected.influentialCitationCount > 0 && (
+                {(selected.influentialCitationCount ?? 0) > 0 && (
                   <Tag color="gold">高影响力 {selected.influentialCitationCount}</Tag>
                 )}
                 {discoveryContext && (

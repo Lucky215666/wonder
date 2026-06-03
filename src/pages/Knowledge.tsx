@@ -257,7 +257,7 @@ export default function Knowledge() {
           ) : (
             <List
               size="small"
-              dataSource={kbDocuments as { id: string; file_name: string; summary?: string; fit_score?: number; recommended_action?: string; created_at: string; index_status?: string | null; index_error?: string | null }[]}
+              dataSource={kbDocuments as { id: string; file_name: string; summary?: string; fit_score?: number; recommended_action?: string; created_at: string; index_status?: string | null; index_error?: string | null; reading_card?: string | null }[]}
               renderItem={doc => {
                 const indexStatus = doc.index_status || 'not_indexed'
                 const indexTagMap: Record<string, { color: string; icon: React.ReactNode; label: string }> = {

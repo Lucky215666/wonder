@@ -16,7 +16,7 @@ import {
   ArrowLeftOutlined,
 } from '@ant-design/icons'
 import { useConfigStore } from '../stores/config'
-import type { AppConfig } from '../types/analysis'
+import type { NormalizedAppConfig } from '../types/config'
 
 interface ProviderConfig {
   id: string
@@ -75,7 +75,7 @@ export default function Welcome() {
 
   // 已有配置则直接进主页
   useEffect(() => {
-    if (loaded && config?.provider && config?.apiKey && config?.model) {
+    if (loaded && config?.chat?.provider && config?.chat?.apiKey && config?.chat?.model) {
       navigate('/', { replace: true })
     }
   }, [loaded, config, navigate])
@@ -124,18 +124,28 @@ export default function Welcome() {
   const handleFinish = async () => {
     setSaving(true)
     try {
-      const payload: AppConfig = {
-        provider: form.provider,
-        baseUrl: form.baseUrl,
-        apiKey: form.apiKey,
-        model: form.model,
-        embeddingProvider: form.embeddingProvider || undefined,
-        embeddingBaseUrl: form.embeddingBaseUrl || undefined,
-        embeddingApiKey: form.embeddingApiKey || undefined,
-        embeddingModel: form.embeddingModel || undefined,
+      const payload: NormalizedAppConfig = {
+        chat: {
+          provider: (form.provider || 'openai_compatible') as NormalizedAppConfig['chat']['provider'],
+          preset: '',
+          apiKey: form.apiKey,
+          baseUrl: form.baseUrl,
+          model: form.model,
+          temperature: 0.2,
+          maxTokens: 4096,
+        },
+        embedding: {
+          provider: (form.embeddingProvider || 'openai_compatible') as NormalizedAppConfig['embedding']['provider'],
+          preset: '',
+          apiKey: form.embeddingApiKey || '',
+          baseUrl: form.embeddingBaseUrl || '',
+          model: form.embeddingModel || '',
+          dimensions: 1536,
+        },
+        knowledge: { enabled: true, autoIndex: true, contextTokenLimit: 8000 },
+        research: { globalProfile: form.globalUserProfile || '' },
         nickname: form.nickname || undefined,
         avatar: form.avatar || undefined,
-        globalUserProfile: form.globalUserProfile || undefined,
       }
       await saveConfig(payload)
       message.success('配置完成，欢迎使用 Wonder')

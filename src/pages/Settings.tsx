@@ -11,7 +11,7 @@ import {
   CameraOutlined,
 } from '@ant-design/icons'
 import { useConfigStore } from '../stores/config'
-import type { AppConfig } from '../types/analysis'
+import type { NormalizedAppConfig } from '../types/config'
 
 interface ProviderConfig {
   id: string
@@ -69,14 +69,14 @@ export default function Settings() {
   useEffect(() => {
     if (config) {
       setForm({
-        provider: config.provider || '',
-        baseUrl: config.baseUrl || '',
-        apiKey: config.apiKey || '',
-        model: config.model || '',
-        embeddingProvider: config.embeddingProvider || '',
-        embeddingBaseUrl: config.embeddingBaseUrl || '',
-        embeddingApiKey: config.embeddingApiKey || '',
-        embeddingModel: config.embeddingModel || '',
+        provider: config.chat.provider || '',
+        baseUrl: config.chat.baseUrl || '',
+        apiKey: config.chat.apiKey || '',
+        model: config.chat.model || '',
+        embeddingProvider: config.embedding.provider || '',
+        embeddingBaseUrl: config.embedding.baseUrl || '',
+        embeddingApiKey: config.embedding.apiKey || '',
+        embeddingModel: config.embedding.model || '',
         researchBackground: '',
         nickname: config.nickname || '',
         avatar: config.avatar || '',
@@ -124,15 +124,26 @@ export default function Settings() {
   }
 
   const handleSave = async () => {
-    const payload: AppConfig = {
-      provider: form.provider,
-      baseUrl: form.baseUrl,
-      apiKey: form.apiKey,
-      model: form.model,
-      embeddingProvider: form.embeddingProvider || undefined,
-      embeddingBaseUrl: form.embeddingBaseUrl || undefined,
-      embeddingApiKey: form.embeddingApiKey || undefined,
-      embeddingModel: form.embeddingModel || undefined,
+    const payload: NormalizedAppConfig = {
+      chat: {
+        provider: (form.provider || 'openai_compatible') as NormalizedAppConfig['chat']['provider'],
+        preset: '',
+        apiKey: form.apiKey,
+        baseUrl: form.baseUrl,
+        model: form.model,
+        temperature: 0.2,
+        maxTokens: 4096,
+      },
+      embedding: {
+        provider: (form.embeddingProvider || 'openai_compatible') as NormalizedAppConfig['embedding']['provider'],
+        preset: '',
+        apiKey: form.embeddingApiKey || '',
+        baseUrl: form.embeddingBaseUrl || '',
+        model: form.embeddingModel || '',
+        dimensions: 1536,
+      },
+      knowledge: config?.knowledge || { enabled: true, autoIndex: true, contextTokenLimit: 8000 },
+      research: config?.research || { globalProfile: '' },
       nickname: form.nickname || undefined,
       avatar: form.avatar || undefined,
     }
