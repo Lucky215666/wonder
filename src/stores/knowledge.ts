@@ -6,6 +6,7 @@ interface KnowledgeState {
   // KB list
   knowledgeBases: KnowledgeBase[]
   kbLoading: boolean
+  error: string | null
   loadKnowledgeBases: () => Promise<void>
   createKnowledgeBase: (name: string, description?: string, readme?: string) => Promise<KnowledgeBase>
   updateKnowledgeBase: (id: string, updates: { name?: string; description?: string; readme?: string }) => Promise<void>
@@ -40,27 +41,41 @@ export const useKnowledgeStore = create<KnowledgeState>((set, get) => ({
   // KB list
   knowledgeBases: [],
   kbLoading: false,
+  error: null,
   loadKnowledgeBases: async () => {
     set({ kbLoading: true })
     try {
       const kbs = await api.get<KnowledgeBase[]>('/api/knowledge-bases')
-      set({ knowledgeBases: kbs, kbLoading: false })
-    } catch {
-      set({ kbLoading: false })
+      set({ knowledgeBases: kbs, kbLoading: false, error: null })
+    } catch (err) {
+      set({ kbLoading: false, error: err instanceof Error ? err.message : String(err) })
     }
   },
   createKnowledgeBase: async (name, description, readme) => {
-    const kb = await api.post<KnowledgeBase>('/api/knowledge-bases', { name, description, readme })
-    set(state => ({ knowledgeBases: [kb, ...state.knowledgeBases] }))
-    return kb
+    try {
+      const kb = await api.post<KnowledgeBase>('/api/knowledge-bases', { name, description, readme })
+      set(state => ({ knowledgeBases: [kb, ...state.knowledgeBases], error: null }))
+      return kb
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      set({ error: msg })
+      throw err
+    }
   },
   updateKnowledgeBase: async (id, updates) => {
-    await api.patch(`/api/knowledge-bases/${id}`, updates)
-    set(state => ({
-      knowledgeBases: state.knowledgeBases.map(kb =>
-        kb.id === id ? { ...kb, ...updates } : kb
-      ),
-    }))
+    try {
+      await api.patch(`/api/knowledge-bases/${id}`, updates)
+      set(state => ({
+        knowledgeBases: state.knowledgeBases.map(kb =>
+          kb.id === id ? { ...kb, ...updates } : kb
+        ),
+        error: null,
+      }))
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      set({ error: msg })
+      throw err
+    }
   },
   deleteKnowledgeBase: async (id) => {
     await api.delete(`/api/knowledge-bases/${id}`)
@@ -112,8 +127,13 @@ export const useKnowledgeStore = create<KnowledgeState>((set, get) => ({
   // README suggestions
   readmeSuggestions: [],
   loadReadmeSuggestions: async (kbId) => {
-    const suggestions = await api.get(`/api/knowledge-bases/${kbId}/readme-suggestions?status=pending`)
-    set({ readmeSuggestions: suggestions as unknown[] })
+    try {
+      const suggestions = await api.get(`/api/knowledge-bases/${kbId}/readme-suggestions?status=pending`)
+      set({ readmeSuggestions: suggestions as unknown[], error: null })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      set({ error: msg })
+    }
   },
   acceptSuggestion: async (suggestionId) => {
     await api.post(`/api/knowledge-bases/readme-suggestions/${suggestionId}/accept`)
