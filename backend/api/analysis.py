@@ -128,10 +128,13 @@ async def analyze_gateway(body: GatewayAnalysisRequest, req: Request):
                     break
 
                 # Check if worker thread has timed out
-                if not thread.is_alive() or _time.monotonic() - last_activity >= WORKER_TIMEOUT:
-                    if thread.is_alive():
-                        yield f"event: error\ndata: {json.dumps({'error': 'Analysis timed out waiting for agent output.'}, ensure_ascii=False)}\n\n"
+                if _time.monotonic() - last_activity >= WORKER_TIMEOUT:
+                    yield f"event: error\ndata: {json.dumps({'error': 'Analysis timed out waiting for agent output.'}, ensure_ascii=False)}\n\n"
                     return
+
+                # Thread finished — drain remaining queue items then exit loop
+                if not thread.is_alive():
+                    break
 
                 try:
                     item = await asyncio.wait_for(progress_queue.get(), timeout=0.5)
