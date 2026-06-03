@@ -36,10 +36,16 @@ export default function ChatMessage({ role, content, avatar, sources }: Props) {
                   <div className="wonder-chat-source__text">{chunk}</div>
                 </div>
               ))
-            ) : (
+            ) : sources ? (
               <div className="wonder-chat-source">
                 <div className="wonder-chat-source__text" style={{ color: 'var(--ink-faint)', fontStyle: 'italic' }}>
                   无匹配的已索引来源
+                </div>
+              </div>
+            ) : (
+              <div className="wonder-chat-source">
+                <div className="wonder-chat-source__text" style={{ color: 'var(--ink-faint)', fontStyle: 'italic' }}>
+                  来源未检索
                 </div>
               </div>
             )}
