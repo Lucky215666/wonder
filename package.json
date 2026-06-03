@@ -14,7 +14,7 @@
     "test": "vitest run",
     "test:unit": "vitest run",
     "test:server": "vitest run tests/server",
-    "test:python": "python -m pytest backend/tests -q",
+    "test:python": "py -3.13 -m pytest backend/tests -q",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
     "verify": "npm run typecheck && npm run test:unit && npm run test:python"
   },
