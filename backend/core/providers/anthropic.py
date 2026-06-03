@@ -13,8 +13,10 @@ class AnthropicProvider:
         api_key: str,
         base_url: str,
         client: Anthropic | None = None,
+        health_check_model: str = "claude-haiku-4-5-20251001",
     ):
         self._client = client or Anthropic(api_key=api_key, base_url=base_url, timeout=300.0)
+        self._health_check_model = health_check_model
 
     def chat(
         self,
@@ -76,9 +78,14 @@ class AnthropicProvider:
                 yield event.delta.text
 
     def health_check(self) -> bool:
+        # Minimal connectivity check: 1 token on the cheapest model.
+        # No lightweight model-listing endpoint in the Anthropic SDK, so we
+        # send the smallest possible completion request.  The model is
+        # configurable to allow callers to use an even cheaper tier if one
+        # becomes available.
         try:
             self._client.messages.create(
-                model="claude-haiku-4-5-20251001",
+                model=self._health_check_model,
                 max_tokens=1,
                 messages=[{"role": "user", "content": "hi"}],
             )

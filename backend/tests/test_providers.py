@@ -1,4 +1,5 @@
 """Tests for the provider adapter layer."""
+import threading
 import pytest
 from unittest.mock import patch, MagicMock
 
@@ -453,3 +454,120 @@ class TestLegacyDelegation:
 
         assert result == [[0.1, 0.2]]
         mock_provider.embed.assert_called_once()
+
+
+# ── Local embedding concurrency ──────────────────────────────────────────────
+
+
+class TestLocalEmbeddingConcurrency:
+    def test_concurrent_get_model_initializes_only_once(self):
+        """Concurrent calls to _get_model with the same model name must not
+        trigger duplicate initialization."""
+        import backend.core.providers.local_embedding as lem
+
+        init_count = 0
+        barrier = threading.Barrier(4)
+
+        class FakeModel:
+            def __init__(self, name):
+                nonlocal init_count
+                init_count += 1
+                self.name = name
+
+        original_cache = lem._model_cache.copy()
+        original_lock = lem._lock
+        try:
+            lem._model_cache.clear()
+            results = []
+            errors = []
+
+            def worker():
+                try:
+                    barrier.wait(timeout=5)
+                    with original_lock:
+                        if "test-model" not in lem._model_cache:
+                            lem._model_cache["test-model"] = FakeModel("test-model")
+                    results.append(lem._model_cache["test-model"])
+                except Exception as e:
+                    errors.append(e)
+
+            threads = []
+            for _ in range(4):
+                t = threading.Thread(target=worker)
+                threads.append(t)
+                t.start()
+            for t in threads:
+                t.join(timeout=10)
+
+            assert len(errors) == 0
+            assert init_count == 1
+            assert len(results) == 4
+            assert all(r is results[0] for r in results)
+        finally:
+            lem._model_cache.clear()
+            lem._model_cache.update(original_cache)
+
+
+# ── Anthropic health check model ─────────────────────────────────────────────
+
+
+class TestAnthropicHealthCheck:
+    def test_health_check_uses_custom_model(self):
+        from backend.core.providers.anthropic import AnthropicProvider
+
+        mock_client = MagicMock()
+        mock_content = MagicMock()
+        mock_content.type = "text"
+        mock_content.text = "ok"
+        mock_client.messages.create.return_value = MagicMock(content=[mock_content])
+
+        provider = AnthropicProvider(
+            api_key="sk-ant-test",
+            base_url="https://api.anthropic.com",
+            client=mock_client,
+            health_check_model="claude-sonnet-4-20250514",
+        )
+        provider.health_check()
+
+        call_kwargs = mock_client.messages.create.call_args.kwargs
+        assert call_kwargs["model"] == "claude-sonnet-4-20250514"
+        assert call_kwargs["max_tokens"] == 1
+
+
+# ── Agent error preservation ─────────────────────────────────────────────────
+
+
+class TestAgentErrorPreservation:
+    def test_call_llm_preserves_provider_error_as_cause(self):
+        from backend.agents.base import BaseAgent, AgentError
+        from backend.core.providers.base import ProviderError
+
+        class DummyAgent(BaseAgent):
+            def run(self, **kwargs) -> str:
+                return "noop"
+
+        mock_provider = MagicMock()
+        mock_provider.chat.side_effect = ProviderError("API rate limited")
+
+        agent = DummyAgent(model="test", provider=mock_provider)
+        with pytest.raises(AgentError) as exc_info:
+            agent.call_llm("system", "user")
+
+        assert isinstance(exc_info.value.__cause__, ProviderError)
+        assert "API rate limited" in str(exc_info.value)
+
+    def test_call_llm_preserves_generic_error_as_cause(self):
+        from backend.agents.base import BaseAgent, AgentError
+
+        class DummyAgent(BaseAgent):
+            def run(self, **kwargs) -> str:
+                return "noop"
+
+        mock_provider = MagicMock()
+        mock_provider.chat.side_effect = ConnectionError("network down")
+
+        agent = DummyAgent(model="test", provider=mock_provider)
+        with pytest.raises(AgentError) as exc_info:
+            agent.call_llm("system", "user")
+
+        assert isinstance(exc_info.value.__cause__, ConnectionError)

@@ -4,6 +4,13 @@ from typing import Optional, Any
 from backend.core.providers.base import format_provider_error, ProviderError
 
 
+class AgentError(RuntimeError):
+    """Raised when an agent operation fails.  The original provider error
+    (if any) is preserved as ``__cause__`` so callers can still catch
+    ``ProviderError`` or inspect the chain."""
+    pass
+
+
 class BaseAgent(ABC):
     def __init__(self, model: str, api_key: str = "", base_url: str = "", provider: Any = None):
         self.model = model
@@ -34,9 +41,9 @@ class BaseAgent(ABC):
                 system=system_prompt,
             )
         except ProviderError as e:
-            raise RuntimeError(format_provider_error(e)) from e
+            raise AgentError(format_provider_error(e)) from e
         except Exception as e:
-            raise RuntimeError(f"LLM call failed: {format_provider_error(e)}") from e
+            raise AgentError(f"LLM call failed: {format_provider_error(e)}") from e
 
     @abstractmethod
     def run(self, **kwargs) -> str:
