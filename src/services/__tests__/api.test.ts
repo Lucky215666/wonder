@@ -171,6 +171,17 @@ describe('api.post', () => {
       expect((err as ApiError).userMessage).toBe('服务暂时不可用，请稍后重试。')
     }
   })
+
+  it('passes signal to fetch', async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ ok: true }))
+    const controller = new AbortController()
+    await api.post('/api/test', { a: 1 }, controller.signal)
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      '/api/test',
+      expect.objectContaining({ signal: controller.signal }),
+    )
+  })
 })
 
 describe('api.delete', () => {

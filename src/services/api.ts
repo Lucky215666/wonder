@@ -37,13 +37,14 @@ function parseDebugMessage(text: string): string {
   }
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   let res: Response
   try {
     res = await fetch(`${BASE}${path}`, {
       method,
       headers: body ? { 'Content-Type': 'application/json' } : {},
       body: body ? JSON.stringify(body) : undefined,
+      signal,
     })
   } catch {
     throw new ApiError({
@@ -67,11 +68,11 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 }
 
 export const api = {
-  get: <T>(path: string) => request<T>('GET', path),
-  post: <T>(path: string, body?: unknown) => request<T>('POST', path, body),
-  put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body),
-  patch: <T>(path: string, body?: unknown) => request<T>('PATCH', path, body),
-  delete: <T>(path: string) => request<T>('DELETE', path),
+  get: <T>(path: string, signal?: AbortSignal) => request<T>('GET', path, undefined, signal),
+  post: <T>(path: string, body?: unknown, signal?: AbortSignal) => request<T>('POST', path, body, signal),
+  put: <T>(path: string, body?: unknown, signal?: AbortSignal) => request<T>('PUT', path, body, signal),
+  patch: <T>(path: string, body?: unknown, signal?: AbortSignal) => request<T>('PATCH', path, body, signal),
+  delete: <T>(path: string, signal?: AbortSignal) => request<T>('DELETE', path, undefined, signal),
 
   parseFile: async (file: File): Promise<{ text: string; fileName: string }> => {
     const form = new FormData()
