@@ -6,6 +6,8 @@ import type { AppConfig } from '../types/analysis'
 interface ConfigState {
   config: NormalizedAppConfig | null
   loaded: boolean
+  error: string | null
+  saving: boolean
   loadConfig: () => Promise<void>
   saveConfig: (config: NormalizedAppConfig) => Promise<void>
 }
@@ -13,6 +15,8 @@ interface ConfigState {
 export const useConfigStore = create<ConfigState>((set) => ({
   config: null,
   loaded: false,
+  error: null,
+  saving: false,
   loadConfig: async () => {
     try {
       const data = await api.get<Record<string, string>>('/api/config')
@@ -58,12 +62,20 @@ export const useConfigStore = create<ConfigState>((set) => ({
       }
 
       set({ config: normalized, loaded: true })
-    } catch {
-      set({ config: null, loaded: true })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      set({ config: null, loaded: true, error: msg })
     }
   },
   saveConfig: async (config) => {
-    await api.put('/api/config', { normalizedConfig: config })
-    set({ config })
+    set({ saving: true, error: null })
+    try {
+      await api.put('/api/config', { normalizedConfig: config })
+      set({ config, saving: false })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      set({ saving: false, error: msg })
+      throw err
+    }
   },
 }))

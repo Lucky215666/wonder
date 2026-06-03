@@ -14,7 +14,7 @@ import { api } from '../../services/api'
 const mockApi = vi.mocked(api)
 
 function resetStore() {
-  useConfigStore.setState({ config: null, loaded: false })
+  useConfigStore.setState({ config: null, loaded: false, error: null, saving: false })
 }
 
 describe('useConfigStore', () => {
@@ -87,7 +87,7 @@ describe('useConfigStore', () => {
       expect(state.config?.nickname).toBe('Alice')
     })
 
-    it('marks config loaded when loadConfig fails', async () => {
+    it('marks config loaded and sets error when loadConfig fails', async () => {
       mockApi.get.mockRejectedValueOnce(new Error('network down'))
 
       await expect(useConfigStore.getState().loadConfig()).resolves.toBeUndefined()
@@ -95,6 +95,7 @@ describe('useConfigStore', () => {
       const state = useConfigStore.getState()
       expect(state.loaded).toBe(true)
       expect(state.config).toBeNull()
+      expect(state.error).toBe('network down')
     })
 
     it('uses defaults when config is empty', async () => {
@@ -172,6 +173,70 @@ describe('useConfigStore', () => {
       const state = useConfigStore.getState()
       expect(state.config?.chat.provider).toBe('openai_compatible')
       expect(state.config?.chat.model).toBe('deepseek-chat')
+    })
+
+    it('sets error and rethrows when saveConfig fails', async () => {
+      mockApi.put.mockRejectedValueOnce(new Error('server error'))
+
+      const config = {
+        chat: {
+          provider: 'anthropic' as const,
+          preset: '',
+          apiKey: 'sk-ant',
+          baseUrl: 'https://api.anthropic.com',
+          model: 'claude-sonnet-4-20250514',
+          temperature: 0.2,
+          maxTokens: 4096,
+        },
+        embedding: {
+          provider: 'openai_compatible' as const,
+          preset: '',
+          apiKey: '',
+          baseUrl: '',
+          model: '',
+          dimensions: 1536,
+        },
+        knowledge: { enabled: true, autoIndex: true, contextTokenLimit: 8000 },
+        research: { globalProfile: '' },
+      }
+
+      await expect(useConfigStore.getState().saveConfig(config)).rejects.toThrow('server error')
+
+      const state = useConfigStore.getState()
+      expect(state.saving).toBe(false)
+      expect(state.error).toBe('server error')
+    })
+
+    it('clears error and sets saving false on successful save', async () => {
+      mockApi.put.mockResolvedValue(undefined)
+
+      const config = {
+        chat: {
+          provider: 'anthropic' as const,
+          preset: '',
+          apiKey: 'sk-ant',
+          baseUrl: 'https://api.anthropic.com',
+          model: 'claude-sonnet-4-20250514',
+          temperature: 0.2,
+          maxTokens: 4096,
+        },
+        embedding: {
+          provider: 'openai_compatible' as const,
+          preset: '',
+          apiKey: '',
+          baseUrl: '',
+          model: '',
+          dimensions: 1536,
+        },
+        knowledge: { enabled: true, autoIndex: true, contextTokenLimit: 8000 },
+        research: { globalProfile: '' },
+      }
+
+      await useConfigStore.getState().saveConfig(config)
+
+      const state = useConfigStore.getState()
+      expect(state.saving).toBe(false)
+      expect(state.error).toBeNull()
     })
   })
 })
