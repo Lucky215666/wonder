@@ -31,6 +31,12 @@ export default function CitationNetwork() {
         setSeedPaper(seed)
         setNodes(graph.nodes)
         setEdges(graph.edges)
+
+        const refEdges = graph.edges.filter(e => e.from === paperId && e.type === 'references')
+        const citEdges = graph.edges.filter(e => e.to === paperId && e.type === 'citations')
+        if (refEdges.length === 0 && citEdges.length === 0 && graph.nodes.length <= 1) {
+          message.warning('引用数据可能不完整，部分信息加载失败')
+        }
       })
       .catch(e => message.error(`加载失败: ${(e as Error).message}`))
       .finally(() => setLoading(false))
