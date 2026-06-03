@@ -538,8 +538,8 @@ class TestAnthropicHealthCheck:
 
 
 class TestAgentErrorPreservation:
-    def test_call_llm_preserves_provider_error_as_cause(self):
-        from backend.agents.base import BaseAgent, AgentError
+    def test_call_llm_preserves_provider_error_type(self):
+        from backend.agents.base import BaseAgent
         from backend.core.providers.base import ProviderError
 
         class DummyAgent(BaseAgent):
@@ -550,11 +550,8 @@ class TestAgentErrorPreservation:
         mock_provider.chat.side_effect = ProviderError("API rate limited")
 
         agent = DummyAgent(model="test", provider=mock_provider)
-        with pytest.raises(AgentError) as exc_info:
+        with pytest.raises(ProviderError, match="API rate limited"):
             agent.call_llm("system", "user")
-
-        assert isinstance(exc_info.value.__cause__, ProviderError)
-        assert "API rate limited" in str(exc_info.value)
 
     def test_call_llm_preserves_generic_error_as_cause(self):
         from backend.agents.base import BaseAgent, AgentError
