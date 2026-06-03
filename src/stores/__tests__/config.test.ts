@@ -87,6 +87,16 @@ describe('useConfigStore', () => {
       expect(state.config?.nickname).toBe('Alice')
     })
 
+    it('marks config loaded when loadConfig fails', async () => {
+      mockApi.get.mockRejectedValueOnce(new Error('network down'))
+
+      await expect(useConfigStore.getState().loadConfig()).resolves.toBeUndefined()
+
+      const state = useConfigStore.getState()
+      expect(state.loaded).toBe(true)
+      expect(state.config).toBeNull()
+    })
+
     it('uses defaults when config is empty', async () => {
       mockApi.get.mockResolvedValue({})
 

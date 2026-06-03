@@ -141,8 +141,14 @@ export const useKnowledgeStore = create<KnowledgeState>((set, get) => ({
   loading: false,
   loadDocuments: async () => {
     set({ loading: true })
-    const docs = await api.get('/api/knowledge')
-    set({ documents: docs as unknown[], loading: false })
+    try {
+      const docs = await api.get('/api/knowledge')
+      set({ documents: docs as unknown[] })
+    } catch {
+      set({ documents: [] })
+    } finally {
+      set({ loading: false })
+    }
   },
   deleteDocument: async (id) => {
     await api.delete(`/api/knowledge/${id}`)

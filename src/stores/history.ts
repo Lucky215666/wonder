@@ -13,8 +13,14 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
   loading: false,
   loadHistory: async () => {
     set({ loading: true })
-    const items = await api.get('/api/history')
-    set({ items: items as unknown[], loading: false })
+    try {
+      const items = await api.get('/api/history')
+      set({ items: items as unknown[] })
+    } catch {
+      set({ items: [] })
+    } finally {
+      set({ loading: false })
+    }
   },
   deleteHistory: async (id: string) => {
     await api.delete(`/api/history/${id}`)
