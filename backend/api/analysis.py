@@ -20,6 +20,8 @@ from backend.models.schemas import GatewayAnalysisRequest, ChatConfig
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 
+WORKER_TIMEOUT = 300  # seconds — max idle time before stream emits error
+
 import re as _re
 
 def _extract_topic_summary(reading_card: str, max_len: int = 500) -> str:
@@ -88,7 +90,7 @@ async def analyze_gateway(body: GatewayAnalysisRequest, req: Request):
     orchestrator = Orchestrator(agents=agents)
 
     progress_queue: asyncio.Queue = asyncio.Queue()
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     put = lambda item: _threadsafe_put(loop, progress_queue, item)
 
     def progress_callback(current: int, total: int):
@@ -124,6 +126,12 @@ async def analyze_gateway(body: GatewayAnalysisRequest, req: Request):
             while True:
                 if await req.is_disconnected():
                     break
+
+                # Check if worker thread has timed out
+                if not thread.is_alive() or _time.monotonic() - last_activity >= WORKER_TIMEOUT:
+                    if thread.is_alive():
+                        yield f"event: error\ndata: {json.dumps({'error': 'Analysis timed out waiting for agent output.'}, ensure_ascii=False)}\n\n"
+                    return
 
                 try:
                     item = await asyncio.wait_for(progress_queue.get(), timeout=0.5)
