@@ -28,3 +28,7 @@ src/types/*.js
 
 # Claude Code
 .claude/
+
+# Agent working drafts
+wonder-optimization-audit/
+wonder-optimization-wave1-baseline/
