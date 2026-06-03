@@ -52,11 +52,15 @@ export default function QA() {
 
   const handleCreateSession = async () => {
     if (!newTitle.trim()) return
-    await createSession(newTitle.trim(), newScopeType, newScopeIds)
-    setShowNewSession(false)
-    setNewTitle('')
-    setNewScopeType('knowledge_base')
-    setNewScopeIds([])
+    try {
+      await createSession(newTitle.trim(), newScopeType, newScopeIds)
+      setShowNewSession(false)
+      setNewTitle('')
+      setNewScopeType('knowledge_base')
+      setNewScopeIds([])
+    } catch {
+      message.error('创建会话失败，请重试')
+    }
   }
 
   const scopeLabel = (type: string) => {

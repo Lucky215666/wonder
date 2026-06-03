@@ -63,7 +63,7 @@ export default function CitationNetwork() {
     }, discoveryContext.keywords)
   }
 
-  const handleSaveCandidate = (node: GraphNode, type: 'reference' | 'citation') => {
+  const handleSaveCandidate = async (node: GraphNode, type: 'reference' | 'citation') => {
     if (!discoveryContext) {
       message.warning('请先在文献发现页面设置发现上下文')
       return
@@ -84,11 +84,15 @@ export default function CitationNetwork() {
       discoveryReason: ranking.reason,
       state: 'saved',
     }
-    saveCandidate(candidate)
-    message.success('已保存到候选队列')
+    try {
+      await saveCandidate(candidate)
+      message.success('已保存到候选队列')
+    } catch {
+      message.error('保存失败，请重试')
+    }
   }
 
-  const handleIgnoreCandidate = (node: GraphNode, type: 'reference' | 'citation') => {
+  const handleIgnoreCandidate = async (node: GraphNode, type: 'reference' | 'citation') => {
     if (!discoveryContext) {
       message.warning('请先在文献发现页面设置发现上下文')
       return
@@ -109,8 +113,12 @@ export default function CitationNetwork() {
       discoveryReason: ranking.reason,
       state: 'ignored',
     }
-    saveCandidate(candidate)
-    message.info('已忽略该论文')
+    try {
+      await saveCandidate(candidate)
+      message.info('已忽略该论文')
+    } catch {
+      message.error('操作失败，请重试')
+    }
   }
 
   const getCandidateStateTag = (nodeId: string) => {

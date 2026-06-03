@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Typography, Button, Empty, Tag, Popconfirm } from 'antd'
+import { Typography, Button, Empty, Tag, Popconfirm, message } from 'antd'
 import { FileTextOutlined, RightOutlined, BookOutlined, DeleteOutlined } from '@ant-design/icons'
 import { useHistoryStore } from '../stores/history'
 import { useKnowledgeStore } from '../stores/knowledge'
@@ -105,7 +105,13 @@ export default function History() {
                   <Popconfirm
                     title="确认删除"
                     description="删除后不可恢复，确定要删除这条记录吗？"
-                    onConfirm={() => deleteHistory(item.id)}
+                    onConfirm={async () => {
+                      try {
+                        await deleteHistory(item.id)
+                      } catch {
+                        message.error('删除失败，请重试')
+                      }
+                    }}
                     okText="删除"
                     cancelText="取消"
                     okButtonProps={{ danger: true }}
