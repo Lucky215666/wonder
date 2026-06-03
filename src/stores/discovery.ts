@@ -20,6 +20,7 @@ interface DiscoveryState {
   candidateQueue: DiscoveryCandidate[]
   candidatesLoading: boolean
   candidatesError: string | null
+  saving: boolean
   loadCandidates: (knowledgeBaseId?: string) => Promise<void>
   saveCandidate: (candidate: Omit<DiscoveryCandidate, 'id'>) => Promise<void>
   updateCandidateState: (id: string, state: DiscoveryCandidate['state']) => Promise<void>
@@ -93,6 +94,7 @@ export const useDiscoveryStore = create<DiscoveryState>((set, get) => ({
   candidateQueue: [],
   candidatesLoading: false,
   candidatesError: null,
+  saving: false,
 
   loadCandidates: async (knowledgeBaseId) => {
     set({ candidatesLoading: true, candidatesError: null })
@@ -106,39 +108,59 @@ export const useDiscoveryStore = create<DiscoveryState>((set, get) => ({
   },
 
   saveCandidate: async (candidate) => {
-    const body = {
-      paperId: candidate.paperId,
-      title: candidate.title,
-      abstract: candidate.abstract,
-      year: candidate.year,
-      citationCount: candidate.citationCount,
-      influentialCitationCount: candidate.influentialCitationCount,
-      venue: candidate.venue,
-      authors: candidate.authors,
-      url: candidate.url,
-      sourceQuery: candidate.sourceQuery,
-      discoveryPriorityScore: candidate.discoveryPriorityScore,
-      discoveryReason: candidate.discoveryReason,
-      state: candidate.state,
-      knowledgeBaseId: candidate.knowledgeBaseId,
+    if (get().saving) return
+    set({ saving: true })
+    try {
+      const body = {
+        paperId: candidate.paperId,
+        title: candidate.title,
+        abstract: candidate.abstract,
+        year: candidate.year,
+        citationCount: candidate.citationCount,
+        influentialCitationCount: candidate.influentialCitationCount,
+        venue: candidate.venue,
+        authors: candidate.authors,
+        url: candidate.url,
+        sourceQuery: candidate.sourceQuery,
+        discoveryPriorityScore: candidate.discoveryPriorityScore,
+        discoveryReason: candidate.discoveryReason,
+        state: candidate.state,
+        knowledgeBaseId: candidate.knowledgeBaseId,
+      }
+      await api.post('/api/discovery/candidates', body)
+      await get().loadCandidates(candidate.knowledgeBaseId ?? undefined)
+      set({ saving: false })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      set({ saving: false, candidatesError: msg })
+      throw err
     }
-    await api.post('/api/discovery/candidates', body)
-    // Reload to get server-assigned id
-    await get().loadCandidates(candidate.knowledgeBaseId ?? undefined)
   },
 
   updateCandidateState: async (id, state) => {
-    await api.patch(`/api/discovery/candidates/${id}`, { state })
-    set(s => ({
-      candidateQueue: s.candidateQueue.map(c => c.id === id ? { ...c, state } : c),
-    }))
+    try {
+      await api.patch(`/api/discovery/candidates/${id}`, { state })
+      set(s => ({
+        candidateQueue: s.candidateQueue.map(c => c.id === id ? { ...c, state } : c),
+      }))
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      set({ candidatesError: msg })
+      throw err
+    }
   },
 
   removeCandidate: async (id) => {
-    await api.delete(`/api/discovery/candidates/${id}`)
-    set(s => ({
-      candidateQueue: s.candidateQueue.filter(c => c.id !== id),
-    }))
+    try {
+      await api.delete(`/api/discovery/candidates/${id}`)
+      set(s => ({
+        candidateQueue: s.candidateQueue.filter(c => c.id !== id),
+      }))
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      set({ candidatesError: msg })
+      throw err
+    }
   },
 
   isInQueue: (paperId) => get().candidateQueue.some(c => c.paperId === paperId),

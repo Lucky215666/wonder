@@ -68,6 +68,7 @@ describe('useDiscoveryStore', () => {
       candidateQueue: [],
       candidatesLoading: false,
       candidatesError: null,
+      saving: false,
     })
   })
 
@@ -181,5 +182,32 @@ describe('useDiscoveryStore', () => {
 
     expect(useDiscoveryStore.getState().candidatesLoading).toBe(false)
     expect(useDiscoveryStore.getState().candidatesError).toBe('unauthorized')
+  })
+
+  it('sets candidatesError and rethrows when saveCandidate fails', async () => {
+    mockApi.post.mockRejectedValueOnce(new Error('server error'))
+
+    await expect(useDiscoveryStore.getState().saveCandidate(mockCandidate)).rejects.toThrow('server error')
+
+    expect(useDiscoveryStore.getState().candidatesError).toBe('server error')
+    expect(useDiscoveryStore.getState().saving).toBe(false)
+  })
+
+  it('sets candidatesError and rethrows when updateCandidateState fails', async () => {
+    useDiscoveryStore.setState({ candidateQueue: [mockCandidate] })
+    mockApi.patch.mockRejectedValueOnce(new Error('not found'))
+
+    await expect(useDiscoveryStore.getState().updateCandidateState('c1', 'ignored')).rejects.toThrow('not found')
+
+    expect(useDiscoveryStore.getState().candidatesError).toBe('not found')
+  })
+
+  it('sets candidatesError and rethrows when removeCandidate fails', async () => {
+    useDiscoveryStore.setState({ candidateQueue: [mockCandidate] })
+    mockApi.delete.mockRejectedValueOnce(new Error('not found'))
+
+    await expect(useDiscoveryStore.getState().removeCandidate('c1')).rejects.toThrow('not found')
+
+    expect(useDiscoveryStore.getState().candidatesError).toBe('not found')
   })
 })
