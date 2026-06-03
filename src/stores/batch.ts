@@ -32,6 +32,7 @@ interface BatchState {
   // Run history
   runs: BatchRunSummary[]
   runsLoading: boolean
+  runsError: string | null
 
   // Actions
   createRun: (name: string, files: File[], knowledgeBaseId?: string) => Promise<void>
@@ -55,6 +56,7 @@ export const useBatchStore = create<BatchState>((set, get) => ({
   concurrency: 2,
   runs: [],
   runsLoading: false,
+  runsError: null,
 
   createRun: async (name, files, knowledgeBaseId) => {
     const result = await api.post<{ id: string; name: string; items: Array<{ id: string; file_name: string; file_type: string | null }> }>(
@@ -214,12 +216,12 @@ export const useBatchStore = create<BatchState>((set, get) => ({
   },
 
   loadRuns: async () => {
-    set({ runsLoading: true })
+    set({ runsLoading: true, runsError: null })
     try {
       const runs = await api.get<BatchRunSummary[]>('/api/batch/runs')
       set({ runs, runsLoading: false })
-    } catch {
-      set({ runsLoading: false })
+    } catch (err) {
+      set({ runsLoading: false, runsError: err instanceof Error ? err.message : String(err) })
     }
   },
 
