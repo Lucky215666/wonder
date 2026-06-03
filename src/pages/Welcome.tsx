@@ -483,6 +483,13 @@ export default function Welcome() {
             </Button>
           </div>
         )}
+        {step === 2 && (
+          <div style={{ textAlign: 'center', marginTop: 12 }}>
+            <Button type="link" size="small" onClick={handleFinish} loading={saving} style={{ color: 'var(--ink-faint)' }}>
+              跳过，直接完成
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   )
