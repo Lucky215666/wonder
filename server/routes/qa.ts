@@ -113,20 +113,25 @@ export function qaRoutes(storage: StorageService, python: PythonBackendClient) {
     pythonBody.conversation_history = recentHistory
 
     // Call Python
-    const result = await python.post<PythonQAResponse>('/api/knowledge/ask', pythonBody)
+    try {
+      const result = await python.post<PythonQAResponse>('/api/knowledge/ask', pythonBody)
 
-    // Save assistant message
-    const assistantMsgId = randomUUID()
-    const sources = JSON.stringify({ docIds: result.source_doc_ids, chunks: result.source_chunks })
-    storage.addQAMessage({ id: assistantMsgId, session_id: id, role: 'assistant', content: result.answer, sources })
+      // Save assistant message
+      const assistantMsgId = randomUUID()
+      const sources = JSON.stringify({ docIds: result.source_doc_ids, chunks: result.source_chunks })
+      storage.addQAMessage({ id: assistantMsgId, session_id: id, role: 'assistant', content: result.answer, sources })
 
-    // Update session updated_at
-    storage.updateQASession(id, {})
+      // Update session updated_at
+      storage.updateQASession(id, {})
 
-    return c.json({
-      userMessage: { id: userMsgId, role: 'user', content: body.question.trim() },
-      assistantMessage: { id: assistantMsgId, role: 'assistant', content: result.answer, sources: { docIds: result.source_doc_ids, chunks: result.source_chunks } },
-    })
+      return c.json({
+        userMessage: { id: userMsgId, role: 'user', content: body.question.trim() },
+        assistantMessage: { id: assistantMsgId, role: 'assistant', content: result.answer, sources: { docIds: result.source_doc_ids, chunks: result.source_chunks } },
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return c.json({ error: `Python backend unavailable: ${message}` }, 503)
+    }
   })
 
   // ── Legacy endpoint (backward compatible) ───────────────────────────
@@ -150,26 +155,31 @@ export function qaRoutes(storage: StorageService, python: PythonBackendClient) {
       }
     } catch { /* ignore */ }
 
-    const result = await python.post<PythonQAResponse>('/api/knowledge/ask', {
-      question: body.question,
-      knowledge_base_id: body.knowledgeBaseId,
-      knowledge_base_readme: kb?.readme || '',
-      // KB selected: use KB readme as background, skip global profile
-      global_profile: kb ? '' : (storage.getConfig('globalProfile') || ''),
-      nickname,
-      top_k_docs: 3,
-      top_k_chunks: 5,
-      chat_config: chatConfig,
-      embedding_config: embeddingConfig,
-    })
+    try {
+      const result = await python.post<PythonQAResponse>('/api/knowledge/ask', {
+        question: body.question,
+        knowledge_base_id: body.knowledgeBaseId,
+        knowledge_base_readme: kb?.readme || '',
+        // KB selected: use KB readme as background, skip global profile
+        global_profile: kb ? '' : (storage.getConfig('globalProfile') || ''),
+        nickname,
+        top_k_docs: 3,
+        top_k_chunks: 5,
+        chat_config: chatConfig,
+        embedding_config: embeddingConfig,
+      })
 
-    return c.json({
-      answer: result.answer,
-      sources: {
-        docIds: result.source_doc_ids,
-        chunks: result.source_chunks,
-      },
-    })
+      return c.json({
+        answer: result.answer,
+        sources: {
+          docIds: result.source_doc_ids,
+          chunks: result.source_chunks,
+        },
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return c.json({ error: `Python backend unavailable: ${message}` }, 503)
+    }
   })
 
   return app

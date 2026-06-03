@@ -64,6 +64,7 @@ export function configRoutes(storage: StorageService) {
 
   app.put('/', async (c) => {
     const body = await c.req.json<Record<string, unknown>>()
+    let syncWarning: string | undefined
 
     // Handle normalized config storage
     if (body.normalizedConfig) {
@@ -77,7 +78,9 @@ export function configRoutes(storage: StorageService) {
           ? JSON.parse(body.normalizedConfig)
           : body.normalizedConfig
         syncConfigToPython(parsed as Record<string, unknown>)
-      } catch { /* ignore sync errors */ }
+      } catch (err) {
+        syncWarning = err instanceof Error ? err.message : String(err)
+      }
       // Extract and store globalProfile as standalone key for qa/analysis routes
       try {
         const parsed = JSON.parse(normalized)
@@ -93,7 +96,7 @@ export function configRoutes(storage: StorageService) {
       storage.setConfig(key, typeof value === 'string' ? value : JSON.stringify(value))
     }
 
-    return c.json({ success: true })
+    return c.json(syncWarning ? { success: true, syncWarning } : { success: true })
   })
 
   return app

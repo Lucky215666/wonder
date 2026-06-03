@@ -391,4 +391,51 @@ describe('qaRoutes', () => {
       { role: 'assistant', content: 'previous a' },
     ])
   })
+
+  // ── Python failure handling tests ─────────────────────────────────
+
+  it('POST /sessions/:id/messages returns 503 when Python backend fails', async () => {
+    const storage = createMockStorage({
+      getQASession: vi.fn(() => ({
+        id: 's1', title: 'Test', scope_type: 'all', scope_ids: '[]',
+        created_at: '2024-01-01', updated_at: '2024-01-01',
+      })),
+      getQAMessagesBySessionId: vi.fn(() => []),
+    })
+    const python = createMockPython({
+      post: vi.fn(async () => { throw new Error('Connection refused') }),
+    })
+    const app = new Hono()
+    app.route('/api/qa', qaRoutes(storage as any, python as any))
+
+    const res = await app.request('/api/qa/sessions/s1/messages', {
+      method: 'POST',
+      body: JSON.stringify({ question: 'What is RAG?' }),
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+    expect(res.status).toBe(503)
+    const body = await res.json()
+    expect(body.error).toContain('Python')
+    expect(storage.addQAMessage).toHaveBeenCalledTimes(1) // Only user message saved
+  })
+
+  it('POST / (legacy) returns 503 when Python backend fails', async () => {
+    const storage = createMockStorage()
+    const python = createMockPython({
+      post: vi.fn(async () => { throw new Error('Python unavailable') }),
+    })
+    const app = new Hono()
+    app.route('/api/qa', qaRoutes(storage as any, python as any))
+
+    const res = await app.request('/api/qa', {
+      method: 'POST',
+      body: JSON.stringify({ question: 'What is RAG?' }),
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+    expect(res.status).toBe(503)
+    const body = await res.json()
+    expect(body.error).toContain('Python')
+  })
 })
