@@ -40,8 +40,8 @@ class BaseAgent(ABC):
                 max_tokens=max_tokens,
                 system=system_prompt,
             )
-        except ProviderError as e:
-            raise AgentError(format_provider_error(e)) from e
+        except ProviderError:
+            raise
         except Exception as e:
             raise AgentError(f"LLM call failed: {format_provider_error(e)}") from e
 
