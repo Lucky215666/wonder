@@ -1,3 +1,4 @@
+import threading
 from fastapi import APIRouter, HTTPException
 from typing import Optional
 
@@ -27,26 +28,29 @@ config_manager = ConfigManager("data/config.json")
 # Module-level singletons (created once)
 _storage = None
 _embedding = None
+_singleton_lock = threading.Lock()
 
 
 def get_storage_and_embedding():
-    """获取存储和 embedding (单例)"""
+    """获取存储和 embedding (单例，线程安全)"""
     global _storage, _embedding
     if _storage is None:
-        config = config_manager.load()
-        knowledge_config = config.get("knowledge", {})
+        with _singleton_lock:
+            if _storage is None:
+                config = config_manager.load()
+                knowledge_config = config.get("knowledge", {})
 
-        _storage = StorageManager(
-            chroma_path=knowledge_config.get("chroma_path", "data/chroma"),
-        )
-        embedding_provider = _build_embedding_provider()
-        norm = config_manager.load_normalized()
-        emb = norm.get("embedding", {})
-        _embedding = EmbeddingClient(
-            provider=embedding_provider,
-            model_name=emb.get("model", "text-embedding-3-small"),
-            dimensions=emb.get("dimensions", 1536),
-        )
+                _storage = StorageManager(
+                    chroma_path=knowledge_config.get("chroma_path", "data/chroma"),
+                )
+                embedding_provider = _build_embedding_provider()
+                norm = config_manager.load_normalized()
+                emb = norm.get("embedding", {})
+                _embedding = EmbeddingClient(
+                    provider=embedding_provider,
+                    model_name=emb.get("model", "text-embedding-3-small"),
+                    dimensions=emb.get("dimensions", 1536),
+                )
 
     return _storage, _embedding
 
