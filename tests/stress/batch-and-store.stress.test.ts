@@ -100,7 +100,6 @@ describe('stress: knowledge store repeated operations', () => {
   })
 
   it('repeated loadKnowledgeBases does not leave kbLoading stuck', async () => {
-    const store = useKnowledgeStore.getState()
     const iterations = 10
 
     // Alternate success and failure
@@ -117,6 +116,8 @@ describe('stress: knowledge store repeated operations', () => {
       .mockRejectedValueOnce(new Error('abort'))
 
     for (let i = 0; i < iterations; i++) {
+      // Reset kbLoaded so each call actually hits the API
+      useKnowledgeStore.setState({ kbLoaded: false })
       await useKnowledgeStore.getState().loadKnowledgeBases()
     }
 
