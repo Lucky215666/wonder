@@ -127,3 +127,8 @@ const port = parseInt(process.env.PORT || '9800', 10)
 serve({ fetch: app.fetch, hostname: '127.0.0.1', port }, (info) => {
   console.log('Wonder server running at http://127.0.0.1:' + info.port)
 })
+
+/** Close the underlying SQLite storage. Call before app exit. */
+export function closeStorage() {
+  storage.close()
+}

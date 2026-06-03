@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, screen } from 'electron'
+import { app, BrowserWindow, ipcMain, screen, dialog } from 'electron'
 import path from 'path'
 import net from 'net'
 import fs from 'fs'
@@ -10,6 +10,7 @@ if (!gotTheLock) {
 }
 
 let mainWindow: BrowserWindow | null = null
+let serverModule: { closeStorage?: () => void } | null = null
 
 const MIN_WINDOW_WIDTH = 900
 const MIN_WINDOW_HEIGHT = 680
@@ -63,9 +64,10 @@ async function createWindow() {
 
   // Load server in-process (no child process spawn — avoids system Node dependency)
   try {
-    require(path.join(__dirname, '../dist-server/server/index.js'))
+    serverModule = require(path.join(__dirname, '../dist-server/server/index.js'))
   } catch (err) {
     console.error('Failed to start server:', err)
+    dialog.showErrorBox('Wonder 启动失败', `服务器启动失败:\n${err instanceof Error ? err.message : String(err)}`)
     app.quit()
     return
   }
@@ -74,6 +76,7 @@ async function createWindow() {
     await waitForServer(port)
   } catch (err) {
     console.error('Server did not start in time:', err)
+    dialog.showErrorBox('Wonder 启动失败', `服务器未在规定时间内就绪:\n${err instanceof Error ? err.message : String(err)}`)
     app.quit()
     return
   }
@@ -124,6 +127,15 @@ app.on('second-instance', () => {
 app.on('ready', createWindow)
 app.on('window-all-closed', () => {
   app.quit()
+})
+
+app.on('before-quit', () => {
+  try {
+    serverModule?.closeStorage?.()
+  } catch {
+    // Best-effort cleanup — don't block quit on storage close failure
+  }
+  app.exit(0)
 })
 
 // 窗口控制 IPC
