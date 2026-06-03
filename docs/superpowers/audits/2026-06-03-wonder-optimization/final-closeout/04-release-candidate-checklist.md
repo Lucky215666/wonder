@@ -12,15 +12,15 @@ Run from project root. All commands must pass before proceeding to manual checks
 
 | Step | Command | Expected Result | Status |
 |---|---|---|---|
-| A1 | `npm install` | Exit 0, no peer-dep errors, `node_modules/` populated | |
-| A2 | `npm run typecheck` | Exit 0, zero type errors across all three tsconfig targets | |
-| A3 | `npm run test:unit` | Exit 0, all Vitest unit tests pass | |
-| A4 | `npm run test:server` | Exit 0, all server route/service tests pass | |
-| A5 | `npm run test:python` | Exit 0, all pytest tests pass (requires Python 3.13) | |
-| A6 | `npm run test:smoke` | Exit 0, `mock-core-flow.test.ts` passes | |
-| A7 | `npm run test:stress` | Exit 0, `batch-and-store.stress.test.ts` passes within timeout | |
-| A8 | `npm run build` | Exit 0, `dist/` directory created with Vite output | |
-| A9 | `npm run build:server` | Exit 0, `dist-server/server/index.js` exists | |
+| A1 | `npm install` | Exit 0, no peer-dep errors, `node_modules/` populated | PASS |
+| A2 | `npm run typecheck` | Exit 0, zero type errors across all three tsconfig targets | PASS |
+| A3 | `npm run test:unit` | Exit 0, all Vitest unit tests pass | PASS — 26 files, 269 tests, 3.70s |
+| A4 | `npm run test:server` | Exit 0, all server route/service tests pass | PASS — 12 files, 138 tests, 3.65s |
+| A5 | `npm run test:python` | Exit 0, all pytest tests pass (requires Python 3.13) | PASS — 77 tests, 5.37s |
+| A6 | `npm run test:smoke` | Exit 0, `mock-core-flow.test.ts` passes | PASS — 1 file, 6 tests, 425ms |
+| A7 | `npm run test:stress` | Exit 0, `batch-and-store.stress.test.ts` passes within timeout | PASS — 1 file, 11 tests, 805ms |
+| A8 | `npm run build` | Exit 0, `dist/` directory created with Vite output | PASS — built in 77s, chunk size warning (non-blocking) |
+| A9 | `npm run build:server` | Exit 0, `dist-server/server/index.js` exists | PASS |
 
 ---
 
@@ -158,15 +158,17 @@ Keep these minimal to conserve API quota. Use a small, cheap model (e.g. `gpt-4o
 
 | Criteria | Status |
 |---|---|
-| All automated checks (A1-A9) pass | |
-| All dev-mode desktop checks (D1-D6) pass | |
-| First-run flow works (F1-F4) | |
-| Core features work: upload, analysis, KB, QA, history | |
-| Batch, discovery, citation graph functional | |
-| Settings persist across restart | |
-| Data survives close/restart cycle | |
-| External API smoke checks pass | |
+| All automated checks (A1-A9) pass | PASS |
+| All dev-mode desktop checks (D1-D6) pass | PENDING — requires manual Electron testing |
+| First-run flow works (F1-F4) | PENDING — requires manual testing |
+| Core features work: upload, analysis, KB, QA, history | PENDING — requires manual testing |
+| Batch, discovery, citation graph functional | PENDING — requires manual testing |
+| Settings persist across restart | PENDING — requires manual testing |
+| Data survives close/restart cycle | PENDING — requires manual testing |
+| External API smoke checks pass | PENDING — requires manual testing |
 
-**Decision:** Ready for RC / Needs Targeted Fix / Blocked
+**Decision:** Automated checks pass. Manual desktop checks (D1-R4) and external API smoke (E1-E3) require interactive Electron environment — cannot be executed by CI agent.
 
 **Notes:**
+- A8 chunk size warning: main bundle is 1,468 kB (>500 kB limit). Non-blocking but consider code-splitting for production.
+- Two deferred infrastructure issues remain: TS `baseUrl` deprecation warning (TS5101), Python test SSE mock. Neither affects production code.
