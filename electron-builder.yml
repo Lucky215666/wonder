@@ -17,11 +17,11 @@ asarUnpack:
 npmRebuild: false
 afterPack: scripts/after-pack.js
 win:
-  target: dir
+  target: portable
   signAndEditExecutable: false
   forceCodeSigning: false
   legalTrademarks: "MIT License"
-  artifactName: "${productName}-${version}-Setup.${ext}"
+  artifactName: "${productName}.${ext}"
 mac:
   target: dmg
 linux:

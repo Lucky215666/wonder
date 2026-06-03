@@ -8,7 +8,7 @@
     "dev:electron": "tsc -p tsconfig.electron.json && concurrently \"vite\" \"tsx watch server/index.ts\" \"wait-on http://localhost:5173 && electron .\"",
     "build": "vite build",
     "build:server": "tsc -p tsconfig.server.json && node -e \"require('fs').cpSync('server/db','dist-server/server/db',{recursive:true})\"",
-    "build:electron": "tsc -p tsconfig.electron.json && npm run build:server && vite build && electron-rebuild -f -w better-sqlite3 && electron-builder --win dir",
+    "build:electron": "tsc -p tsconfig.electron.json && npm run build:server && vite build && electron-rebuild -f -w better-sqlite3 && electron-builder --win portable",
     "build:installer": "tsc -p tsconfig.electron.json && npm run build:server && vite build && electron-rebuild -f -w better-sqlite3 && electron-builder --win nsis",
     "rebuild:electron": "electron-rebuild -f -w better-sqlite3",
     "test": "vitest run"
