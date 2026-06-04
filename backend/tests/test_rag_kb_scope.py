@@ -416,3 +416,40 @@ def test_retriever_queries_multiple_collections():
 
     assert len(storage.queried_collections) == 4  # 2 summary + 2 content queries
     assert all(c in storage.queried_collections for c in collections)
+
+
+def test_retriever_merges_multi_collection_results_by_distance():
+    """Results from multiple collections must be sorted by distance and trimmed to top_k."""
+    class DistanceVaryingStorage:
+        def __init__(self):
+            self.call_count = 0
+
+        def query_collection(self, query_embeddings, n_results, where=None, collection_name=None):
+            self.call_count += 1
+            # Collection A has worse distances (0.8), Collection B has better (0.1)
+            if "col_a" in (collection_name or ""):
+                return {
+                    "documents": [["summary_a"]],
+                    "metadatas": [[{"doc_id": "doc-a", "file_name": "a.txt"}]],
+                    "distances": [[0.8]],
+                }
+            else:
+                return {
+                    "documents": [["summary_b"]],
+                    "metadatas": [[{"doc_id": "doc-b", "file_name": "b.txt"}]],
+                    "distances": [[0.1]],
+                }
+
+    storage = DistanceVaryingStorage()
+    retriever = RAGRetriever(storage, FakeQueryEmbedding())
+
+    # Query with top_k_docs=1 — should pick doc-b (distance 0.1) over doc-a (0.8)
+    result = retriever.retrieve(
+        "question",
+        collection_names=["col_a", "col_b"],
+        top_k_docs=1,
+        top_k_chunks=1,
+    )
+
+    assert "doc-b" in result.source_doc_ids
+    assert "doc-a" not in result.source_doc_ids

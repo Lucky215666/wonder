@@ -36,7 +36,7 @@ def mock_embedding():
 
 def test_storage_initialization(test_storage):
     """测试存储初始化"""
-    assert test_storage.collection.name == "documents"
+    assert test_storage.get_collection().name == "documents"
 
 
 def test_document_indexing(test_storage, mock_embedding):

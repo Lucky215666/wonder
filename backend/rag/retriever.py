@@ -131,7 +131,12 @@ class RAGRetriever:
             else:
                 chunks_result = {"documents": [[]], "metadatas": [[]], "distances": [[]]}
 
-            matched_doc_ids = list(dict.fromkeys(all_matched_doc_ids))
+            # Extract doc_ids from top-k sorted summaries only
+            matched_doc_ids = list(dict.fromkeys(
+                all_summaries_metas[i].get("doc_id", "")
+                for i in summary_order
+                if "doc_id" in all_summaries_metas[i]
+            )) if all_summaries_dists else []
         else:
             # Single collection (backward compatible)
             summaries_result, chunks_result, matched_doc_ids = self._query_single_collection(
