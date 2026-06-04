@@ -24,19 +24,46 @@ function createApp() {
 }
 
 describe('discoveryRoutes - candidates', () => {
-  it('POST /candidates saves a candidate', async () => {
+  it('POST /candidates saves a candidate and returns paper metadata', async () => {
     const { app, storage } = createApp()
+    // Make getDiscoveryCandidate return a candidate for any id
+    ;(storage.getDiscoveryCandidate as any).mockImplementation((id: string) => ({
+      id, paper_id: 's2-456', title: 'New Paper', abstract: 'Abs',
+      year: 2026, citation_count: 12, influential_citation_count: 4,
+      venue: 'ICLR', authors: '[{"name":"A"}]', url: 'https://example.com/p1',
+      source_query: null, discovery_priority_score: 0, discovery_reason: null,
+      state: 'saved', knowledge_base_id: null,
+      created_at: '2025-01-01', updated_at: '2025-01-01',
+    }))
+
     const res = await app.request('/api/discovery/candidates', {
       method: 'POST',
       body: JSON.stringify({
-        paperId: 's2-456', title: 'New Paper', state: 'saved',
+        paperId: 's2-456', title: 'New Paper', abstract: 'Abs',
+        year: 2026, citationCount: 12, influentialCitationCount: 4,
+        venue: 'ICLR', authors: [{ name: 'A' }], url: 'https://example.com/p1',
+        state: 'saved',
       }),
       headers: { 'Content-Type': 'application/json' },
     })
     expect(res.status).toBe(201)
+
+    // Verify storage receives paper metadata and candidate state
     expect(storage.upsertDiscoveryCandidate).toHaveBeenCalledWith(
-      expect.objectContaining({ paperId: 's2-456', title: 'New Paper', state: 'saved' }),
+      expect.objectContaining({
+        paperId: 's2-456', title: 'New Paper', abstract: 'Abs',
+        year: 2026, citationCount: 12, influentialCitationCount: 4,
+        venue: 'ICLR', authors: '[{"name":"A"}]', url: 'https://example.com/p1',
+        state: 'saved',
+      }),
     )
+
+    // Verify response includes paper metadata fields
+    const body = await res.json()
+    expect(body.title).toBe('New Paper')
+    expect(body.abstract).toBe('Abs')
+    expect(body.year).toBe(2026)
+    expect(body.venue).toBe('ICLR')
   })
 
   it('GET /candidates lists candidates', async () => {

@@ -273,41 +273,58 @@ describe('StorageService', () => {
 
   // ── Discovery candidate tests ──────────────────────────────────────
 
-  it('should insert and retrieve a discovery candidate', () => {
+  it('should insert and retrieve a discovery candidate with paper metadata via JOIN', () => {
     storage.upsertDiscoveryCandidate({
       id: 'c1', paperId: 's2-123', title: 'Test Paper', abstract: 'Abstract text',
-      year: 2024, citationCount: 10, venue: 'ICML',
+      year: 2024, citationCount: 10, influentialCitationCount: 4, venue: 'ICML',
       authors: JSON.stringify([{ authorId: 'a1', name: 'Author' }]),
       url: 'https://example.com', sourceQuery: 'RAG',
       discoveryPriorityScore: 75, discoveryReason: 'keyword match',
       state: 'saved', knowledgeBaseId: null,
     })
-    const candidate = storage.getDiscoveryCandidate('c1')
-    expect(candidate).toBeDefined()
-    expect(candidate!.paper_id).toBe('s2-123')
-    expect(candidate!.state).toBe('saved')
 
-    // Paper metadata now lives in paper_nodes
+    // Verify paper_nodes has the metadata
     const paper = storage.getPaperNode('s2-123')
     expect(paper).toBeDefined()
     expect(paper!.title).toBe('Test Paper')
+    expect(paper!.influential_citation_count).toBe(4)
+
+    // Verify getDiscoveryCandidate returns paper metadata via JOIN
+    const candidate = storage.getDiscoveryCandidate('c1')
+    expect(candidate).toBeDefined()
+    expect(candidate!.paper_id).toBe('s2-123')
+    expect(candidate!.title).toBe('Test Paper')
+    expect(candidate!.abstract).toBe('Abstract text')
+    expect(candidate!.year).toBe(2024)
+    expect(candidate!.citation_count).toBe(10)
+    expect(candidate!.influential_citation_count).toBe(4)
+    expect(candidate!.venue).toBe('ICML')
+    expect(candidate!.authors).toBe(JSON.stringify([{ authorId: 'a1', name: 'Author' }]))
+    expect(candidate!.url).toBe('https://example.com')
+    expect(candidate!.state).toBe('saved')
+    expect(candidate!.source_query).toBe('RAG')
+    expect(candidate!.discovery_priority_score).toBe(75)
   })
 
-  it('should list candidates filtered by knowledge base', () => {
+  it('should list candidates filtered by knowledge base with paper metadata', () => {
     storage.createKnowledgeBase({ id: 'kb-1', name: 'KB' })
-    storage.upsertDiscoveryCandidate({ id: 'c1', paperId: 'p1', title: 'A', state: 'saved', knowledgeBaseId: 'kb-1' })
-    storage.upsertDiscoveryCandidate({ id: 'c2', paperId: 'p2', title: 'B', state: 'saved', knowledgeBaseId: null })
+    storage.upsertDiscoveryCandidate({ id: 'c1', paperId: 'p1', title: 'Paper A', year: 2024, state: 'saved', knowledgeBaseId: 'kb-1' })
+    storage.upsertDiscoveryCandidate({ id: 'c2', paperId: 'p2', title: 'Paper B', year: 2025, state: 'saved', knowledgeBaseId: null })
     const kbCandidates = storage.listDiscoveryCandidates({ knowledgeBaseId: 'kb-1' })
     expect(kbCandidates).toHaveLength(1)
     expect(kbCandidates[0].paper_id).toBe('p1')
+    expect(kbCandidates[0].title).toBe('Paper A')
+    expect(kbCandidates[0].year).toBe(2024)
   })
 
-  it('should list candidates filtered by state', () => {
-    storage.upsertDiscoveryCandidate({ id: 'c1', paperId: 'p1', title: 'A', state: 'saved' })
-    storage.upsertDiscoveryCandidate({ id: 'c2', paperId: 'p2', title: 'B', state: 'ignored' })
+  it('should list candidates filtered by state with paper metadata', () => {
+    storage.upsertDiscoveryCandidate({ id: 'c1', paperId: 'p1', title: 'A', abstract: 'Abs A', state: 'saved' })
+    storage.upsertDiscoveryCandidate({ id: 'c2', paperId: 'p2', title: 'B', abstract: 'Abs B', state: 'ignored' })
     const saved = storage.listDiscoveryCandidates({ state: 'saved' })
     expect(saved).toHaveLength(1)
     expect(saved[0].state).toBe('saved')
+    expect(saved[0].title).toBe('A')
+    expect(saved[0].abstract).toBe('Abs A')
   })
 
   it('should update candidate state', () => {
@@ -323,12 +340,13 @@ describe('StorageService', () => {
     expect(storage.getDiscoveryCandidate('c1')).toBeUndefined()
   })
 
-  it('should deduplicate by (paper_id, knowledge_base_id)', () => {
+  it('should deduplicate by (paper_id, knowledge_base_id) with paper metadata', () => {
     storage.upsertDiscoveryCandidate({ id: 'c1', paperId: 'p1', title: 'First', state: 'saved' })
     storage.upsertDiscoveryCandidate({ id: 'c1b', paperId: 'p1', title: 'Updated', state: 'ignored' })
     const candidates = storage.listDiscoveryCandidates()
     expect(candidates).toHaveLength(1)
     expect(candidates[0].state).toBe('ignored')
+    expect(candidates[0].title).toBe('Updated')
 
     // Paper metadata updated in paper_nodes
     const paper = storage.getPaperNode('p1')

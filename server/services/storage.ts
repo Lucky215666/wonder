@@ -74,6 +74,16 @@ export interface DocumentKBRow {
 export interface DiscoveryCandidateRow {
   id: string
   paper_id: string
+  // Paper metadata (from paper_nodes JOIN)
+  title: string
+  abstract: string | null
+  year: number | null
+  citation_count: number
+  influential_citation_count: number
+  venue: string | null
+  authors: string | null
+  url: string | null
+  // Candidate-specific fields
   source_query: string | null
   discovery_priority_score: number
   discovery_reason: string | null
@@ -642,23 +652,41 @@ export class StorageService {
   }
 
   getDiscoveryCandidate(id: string): DiscoveryCandidateRow | undefined {
-    return this.db.prepare('SELECT * FROM discovery_candidates WHERE id = ?').get(id) as DiscoveryCandidateRow | undefined
+    return this.db.prepare(`
+      SELECT dc.id, dc.paper_id,
+             pn.title, pn.abstract, pn.year, pn.citation_count,
+             pn.influential_citation_count, pn.venue, pn.authors, pn.url,
+             dc.source_query, dc.discovery_priority_score, dc.discovery_reason,
+             dc.state, dc.knowledge_base_id, dc.created_at, dc.updated_at
+      FROM discovery_candidates dc
+      LEFT JOIN paper_nodes pn ON dc.paper_id = pn.paper_id
+      WHERE dc.id = ?
+    `).get(id) as DiscoveryCandidateRow | undefined
   }
 
   listDiscoveryCandidates(opts?: { knowledgeBaseId?: string; state?: string }): DiscoveryCandidateRow[] {
     const conditions: string[] = []
     const values: unknown[] = []
     if (opts?.knowledgeBaseId) {
-      conditions.push('knowledge_base_id = ?')
+      conditions.push('dc.knowledge_base_id = ?')
       values.push(opts.knowledgeBaseId)
     }
     if (opts?.state) {
-      conditions.push('state = ?')
+      conditions.push('dc.state = ?')
       values.push(opts.state)
     }
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
-    return this.db.prepare(`SELECT * FROM discovery_candidates ${where} ORDER BY created_at DESC`)
-      .all(...values) as DiscoveryCandidateRow[]
+    return this.db.prepare(`
+      SELECT dc.id, dc.paper_id,
+             pn.title, pn.abstract, pn.year, pn.citation_count,
+             pn.influential_citation_count, pn.venue, pn.authors, pn.url,
+             dc.source_query, dc.discovery_priority_score, dc.discovery_reason,
+             dc.state, dc.knowledge_base_id, dc.created_at, dc.updated_at
+      FROM discovery_candidates dc
+      LEFT JOIN paper_nodes pn ON dc.paper_id = pn.paper_id
+      ${where}
+      ORDER BY dc.created_at DESC
+    `).all(...values) as DiscoveryCandidateRow[]
   }
 
   updateDiscoveryCandidateState(id: string, state: string) {
