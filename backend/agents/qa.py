@@ -10,6 +10,7 @@ Requirements:
 2. If the answer is not in the materials, explicitly state "当前资料中未找到直接依据".
 3. Do not fabricate paper results, experiment data, or citations.
 4. Output in Chinese.
+5. Research card context represents the user's previous synthesis. Do not present it as paper evidence unless source refs or paper chunks support it.
 """
 
     MODE_PROMPTS: Dict[str, str] = {

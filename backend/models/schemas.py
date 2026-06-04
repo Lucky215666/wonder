@@ -131,9 +131,15 @@ class SourceRef(BaseModel):
     file_name: str
     chunk_id: Optional[str] = None
     chunk_index: Optional[int] = None
-    chunk_type: Literal["summary", "content"] = "content"
+    chunk_type: Literal["summary", "content", "card"] = "content"
     content: str
     score: Optional[float] = None
+    # Card-specific fields (optional, only present when chunk_type == "card")
+    item_type: Optional[str] = None
+    card_id: Optional[str] = None
+    linked_doc_ids: Optional[str] = None
+    knowledge_type: Optional[str] = None
+    tags: Optional[str] = None
 
 
 class KnowledgeQAResponse(BaseModel):
@@ -212,6 +218,25 @@ class KnowledgeIndexRequest(BaseModel):
     analysis_result: dict
     tags: List[str] = []
     embedding_config: Optional[NormalizedEmbeddingConfig] = None
+
+
+class ResearchCardIndexRequest(BaseModel):
+    card_id: str
+    knowledge_base_id: str
+    question: str
+    core_claims: List[str]
+    knowledge_type: str = "other"
+    tags: List[str] = []
+    sub_direction: str = ""
+    use_cases: List[str] = []
+    linked_doc_ids: List[str] = []
+    validation_notes: str = ""
+    embedding_config: Optional[NormalizedEmbeddingConfig] = None
+
+
+class ResearchCardIndexResponse(BaseModel):
+    card_id: str
+    message: str
 
 
 class HealthCheckResponse(BaseModel):

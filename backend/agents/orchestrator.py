@@ -89,9 +89,10 @@ def _resolve_title(
 class Orchestrator:
     """中央调度器，根据任务类型路由到对应 Agent"""
 
-    def __init__(self, agents: Dict[str, BaseAgent], retriever: Optional[RAGRetriever] = None):
+    def __init__(self, agents: Dict[str, BaseAgent], retriever: Optional[RAGRetriever] = None, card_retriever: Optional[Any] = None):
         self.agents = agents
         self.retriever = retriever
+        self.card_retriever = card_retriever
 
     def route_task(self, task_type: str, **kwargs) -> Any:
         """纯规则路由，根据 task_type 调用对应 Agent"""
@@ -274,7 +275,17 @@ class Orchestrator:
             top_k_chunks=top_k_chunks,
         )
 
-        # --- Phase 2: Retrieve using policy scope ---
+        # --- Phase 2a: Retrieve research cards first ---
+        card_refs: List[Dict] = []
+        if self.card_retriever:
+            card_refs = self.card_retriever.retrieve(
+                query=question,
+                knowledge_base_id=policy.retrieval_scope.knowledge_base_id,
+                doc_ids=policy.retrieval_scope.doc_ids,
+                top_k=5,
+            )
+
+        # --- Phase 2b: Retrieve using policy scope ---
         retrieval = self.retriever.retrieve(
             query=question,
             knowledge_base_id=policy.retrieval_scope.knowledge_base_id,
@@ -284,8 +295,10 @@ class Orchestrator:
         )
 
         # --- Phase 3: Finalize policy based on retrieval quality ---
+        reliable_card_refs = [ref for ref in card_refs if (ref.get("score") or 0) >= 0.25]
+        all_source_refs = reliable_card_refs + retrieval.source_refs
         has_reliable = any(
-            (ref.get("score") or 0) >= 0.25 for ref in retrieval.source_refs
+            (ref.get("score") or 0) >= 0.25 for ref in all_source_refs
         )
         policy = finalize_policy_after_retrieval(policy, has_reliable_sources=has_reliable)
 
@@ -295,6 +308,13 @@ class Orchestrator:
             context_parts.append(f"[Global Profile]\n{global_profile}")
         if knowledge_base_readme.strip():
             context_parts.append(f"[Knowledge Base README]\n{knowledge_base_readme}")
+        # Prepend reliable card refs as context
+        if reliable_card_refs:
+            card_context = "\n\n---\n\n".join(
+                f"[Research Card] {ref.get('card_id')}\n{ref.get('content')}"
+                for ref in reliable_card_refs[:5]
+            )
+            context_parts.append(card_context)
         # For general mode without reliable sources, skip retrieval context
         if policy.answer_mode != "general" or has_reliable:
             if retrieval.context:
@@ -318,7 +338,7 @@ class Orchestrator:
             "source_doc_ids": retrieval.source_doc_ids,
             "source_chunks": retrieval.chunks,
             "answer_mode": policy.answer_mode,
-            "source_refs": retrieval.source_refs,
+            "source_refs": all_source_refs,
         }
 
     def _generate_writing(self, reading_card: str, relation_analysis: str,
