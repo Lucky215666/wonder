@@ -9,6 +9,7 @@ import {
 } from '@ant-design/icons'
 import { useKnowledgeStore } from '../stores/knowledge'
 import ApiGuard from '../components/ApiGuard'
+import ResearchCardList from '../components/ResearchCardList'
 
 export default function Knowledge() {
   const navigate = useNavigate()
@@ -20,6 +21,7 @@ export default function Knowledge() {
     readmeSuggestions, loadReadmeSuggestions, acceptSuggestion, rejectSuggestion,
     reindexDocument,
     removeDocumentFromKB,
+    loadResearchCards,
   } = useKnowledgeStore()
 
   const [createOpen, setCreateOpen] = useState(false)
@@ -37,8 +39,9 @@ export default function Knowledge() {
     if (selectedKBId) {
       loadKBDocuments(selectedKBId)
       loadReadmeSuggestions(selectedKBId)
+      loadResearchCards(selectedKBId)
     }
-  }, [selectedKBId, loadKBDocuments, loadReadmeSuggestions])
+  }, [selectedKBId, loadKBDocuments, loadReadmeSuggestions, loadResearchCards])
 
   const handleCreate = async () => {
     try {
@@ -243,6 +246,9 @@ export default function Knowledge() {
             )}
           </Card>
         </div>
+
+        {/* Research Cards */}
+        <ResearchCardList />
 
         {/* Documents */}
         <Card

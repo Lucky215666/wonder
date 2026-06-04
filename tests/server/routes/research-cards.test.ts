@@ -96,6 +96,70 @@ describe('researchCardRoutes', () => {
     expect(body.sourceMessageId).toBe('m2')
   })
 
+  it('draft-from-qa maps Python snake_case draft to frontend camelCase', async () => {
+    const storage = createMockStorage({
+      getQAMessage: vi.fn(() => ({
+        id: 'm2', session_id: 's1', role: 'assistant',
+        content: 'RAG combines retrieval and generation.',
+        sources: JSON.stringify({
+          docIds: ['doc1'], chunks: [], refs: [
+            { doc_id: 'doc1', file_name: 'paper.pdf', chunk_type: 'content', content: 'evidence', score: 0.9 },
+          ],
+          answerMode: 'rag_enhanced',
+        }),
+        created_at: '2024-01-02',
+      })),
+      getPreviousUserMessage: vi.fn(() => ({
+        id: 'm1', session_id: 's1', role: 'user', content: 'What is RAG?',
+        sources: null, created_at: '2024-01-01',
+      })),
+      getQASession: vi.fn(() => ({
+        id: 's1', title: 'Test', scope_type: 'knowledge_base',
+        scope_ids: '["kb1"]', created_at: '2024-01-01', updated_at: '2024-01-01',
+      })),
+    })
+    const python = createMockPython({
+      post: vi.fn(async () => ({
+        question: 'What is RAG?',
+        core_claims: ['claim'],
+        knowledge_type: 'method',
+        tags: ['rag'],
+        sub_direction: 'sub',
+        validation_notes: 'note',
+        use_cases: ['uc'],
+        linked_doc_ids: ['d1'],
+        no_paper_evidence: false,
+        evidence_refs: [
+          { doc_id: 'doc1', file_name: 'paper.pdf', chunk_type: 'content', content: 'evidence', score: 0.9 },
+        ],
+      })),
+    })
+    const app = new Hono()
+    app.route('/api/research-cards', researchCardRoutes(storage as any, python as any))
+
+    const res = await app.request('/api/research-cards/draft-from-qa', {
+      method: 'POST',
+      body: JSON.stringify({ sessionId: 's1', messageId: 'm2', knowledgeBaseId: 'kb1' }),
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.coreClaims).toEqual(['claim'])
+    expect(body.knowledgeType).toBe('method')
+    expect(body.noPaperEvidence).toBe(false)
+    expect(body.subDirection).toBe('sub')
+    expect(body.validationNotes).toBe('note')
+    expect(body.useCases).toEqual(['uc'])
+    expect(body.linkedDocIds).toEqual(['d1'])
+    expect(body.evidenceRefs).toHaveLength(1)
+    expect(body.evidenceRefs[0].documentId).toBe('doc1')
+    expect(body.evidenceRefs[0].fileName).toBe('paper.pdf')
+    expect(body.evidenceRefs[0].snippet).toBe('evidence')
+    expect(body.answerMode).toBe('rag_enhanced')
+    expect(body.sourceMessageId).toBe('m2')
+  })
+
   it('draft-from-qa returns 400 when sessionId or messageId missing', async () => {
     const storage = createMockStorage()
     const python = createMockPython()

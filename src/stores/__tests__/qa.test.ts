@@ -166,6 +166,57 @@ describe('useQAStore', () => {
     expect(useQAStore.getState().sessionsError).toBe('not found')
   })
 
+  it('opens legacy qa session sources while research card fields exist', async () => {
+    mockApi.get.mockResolvedValueOnce({
+      id: 's1',
+      title: 'Test',
+      scope_type: 'knowledge_base',
+      scope_ids: '["kb1"]',
+      updated_at: '2024-01-01',
+      messages: [
+        {
+          id: 'm1',
+          role: 'assistant',
+          content: 'answer',
+          sources: JSON.stringify({
+            docIds: ['doc-1'],
+            chunks: ['chunk'],
+            refs: [
+              { doc_id: 'doc-1', file_name: 'paper.pdf', chunk_type: 'content', content: 'text', score: 0.9 },
+            ],
+            answerMode: 'rag_enhanced',
+          }),
+        },
+        {
+          id: 'm2',
+          role: 'assistant',
+          content: 'second answer',
+          sources: JSON.stringify({
+            docIds: [],
+            chunks: [],
+            refs: [
+              { item_type: 'research_card', card_id: 'card-1', doc_id: '', file_name: 'Research card', chunk_type: 'card', content: 'card content', score: 0.95 },
+            ],
+            answerMode: 'rag_enhanced',
+          }),
+        },
+      ],
+    })
+
+    await useQAStore.getState().openSession('s1')
+
+    const messages = useQAStore.getState().messages
+    expect(messages).toHaveLength(2)
+    // First message: paper ref only
+    expect(messages[0].sources?.docIds).toEqual(['doc-1'])
+    expect(messages[0].sources?.refs).toHaveLength(1)
+    expect(messages[0].sources?.refs?.[0].chunk_type).toBe('content')
+    expect(messages[0].sources?.answerMode).toBe('rag_enhanced')
+    // Second message: card ref (research card field exists in sources)
+    expect(messages[1].sources?.refs).toHaveLength(1)
+    expect(messages[1].sources?.refs?.[0].chunk_type).toBe('card')
+  })
+
   it('draftResearchCard posts session and message id', async () => {
     useQAStore.setState({ sessionId: 's1' } as any)
     mockApi.post.mockResolvedValueOnce({

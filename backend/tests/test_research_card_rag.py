@@ -460,3 +460,54 @@ def test_orchestrator_works_without_card_retriever():
 
     assert result["answer"] == "dummy answer"
     assert len(result["source_refs"]) > 0
+
+
+def test_qa_source_refs_include_research_card_refs_before_paper_refs():
+    """QA source_refs should include card refs (item_type=research_card) before paper refs."""
+    card_ref = {
+        "item_type": "research_card",
+        "card_id": "card-1",
+        "doc_id": "doc-1",
+        "file_name": "Research card",
+        "chunk_id": None,
+        "chunk_index": None,
+        "chunk_type": "card",
+        "content": "Important method insight",
+        "score": 0.95,
+        "linked_doc_ids": ["doc-1"],
+        "knowledge_type": "method",
+        "tags": "rag",
+    }
+    paper_ref = {
+        "doc_id": "doc-1",
+        "file_name": "paper.pdf",
+        "chunk_id": "c1",
+        "chunk_index": 0,
+        "chunk_type": "content",
+        "content": "Paper passage about method",
+        "score": 0.85,
+    }
+
+    orchestrator = Orchestrator(
+        agents={"qa": DummyAgent()},
+        retriever=FakingRetriever(source_refs=[paper_ref]),
+        card_retriever=FakingCardRetriever([card_ref]),
+    )
+
+    result = orchestrator.route_task(
+        task_type="ask_question",
+        question="What method does this paper use?",
+        knowledge_base_id="kb-1",
+    )
+
+    refs = result["source_refs"]
+    assert len(refs) == 2
+    # Card ref first
+    assert refs[0]["item_type"] == "research_card"
+    assert refs[0]["card_id"] == "card-1"
+    assert refs[0]["chunk_type"] == "card"
+    assert refs[0]["score"] == 0.95
+    # Paper ref second
+    assert refs[1]["chunk_type"] == "content"
+    assert refs[1]["file_name"] == "paper.pdf"
+    assert refs[1]["score"] == 0.85
