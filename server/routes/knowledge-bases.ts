@@ -130,11 +130,11 @@ export function knowledgeBaseRoutes(storage: StorageService, python: PythonBacke
         embedding_config: embeddingConfig,
       }).then(() => {
         storage.updateDocumentLifecycle(docId, 'indexed')
-        storage.updateDocumentIndexStatus(docId, 'indexed', null)
+        storage.updateDocumentIndexStatus(docId, 'indexed', null, kbId)
       }).catch((err: unknown) => {
         const errorMsg = err instanceof Error ? err.message : String(err)
         storage.updateDocumentLifecycle(docId, 'index_failed')
-        storage.updateDocumentIndexStatus(docId, 'index_failed', errorMsg)
+        storage.updateDocumentIndexStatus(docId, 'index_failed', errorMsg, kbId)
       })
 
       // Generate README suggestions in background (fire-and-forget)
@@ -165,7 +165,9 @@ export function knowledgeBaseRoutes(storage: StorageService, python: PythonBacke
               })
             }
           }
-        }).catch(() => { /* silently ignore — suggestions are non-critical */ })
+        }).catch((err: unknown) => {
+          console.error('[readme-advisor] Failed to generate suggestions:', err instanceof Error ? err.message : err)
+        })
       }
     }
 
@@ -248,12 +250,12 @@ export function knowledgeBaseRoutes(storage: StorageService, python: PythonBacke
         embedding_config: embeddingConfig,
       })
       storage.updateDocumentLifecycle(docId, 'indexed')
-      storage.updateDocumentIndexStatus(docId, 'indexed', null)
+      storage.updateDocumentIndexStatus(docId, 'indexed', null, kbId)
       return c.json({ success: true })
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err)
       storage.updateDocumentLifecycle(docId, 'index_failed')
-      storage.updateDocumentIndexStatus(docId, 'index_failed', errorMsg)
+      storage.updateDocumentIndexStatus(docId, 'index_failed', errorMsg, kbId)
       return c.json({ error: errorMsg }, 500)
     }
   })

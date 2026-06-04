@@ -57,9 +57,27 @@ function columnExists(db: Database.Database, table: string, column: string): boo
   return cols.some(c => c.name === column)
 }
 
+function assertForeignKeyCheck(db: Database.Database, migration: string): void {
+  const violations = db.prepare('PRAGMA foreign_key_check').all() as { table: string; rowid: number; parent: string; fkid: number }[]
+  if (violations.length > 0) {
+    const details = violations.map(v => `${v.table}(rowid=${v.rowid}) -> ${v.parent}`).join(', ')
+    throw new Error(`Migration ${migration}: foreign_key_check failed: ${details}`)
+  }
+}
+
 // ── Migration 1: Split document_analysis ────────────────────────────────
 
 function migrateSplitDocumentAnalysis(db: Database.Database): void {
+  // Ensure analysis_history exists (needed for FK reference from document_analysis)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS analysis_history (
+      id TEXT PRIMARY KEY,
+      document_id TEXT REFERENCES documents(id) ON DELETE SET NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      result TEXT NOT NULL
+    )
+  `)
+
   const docCols = getTableColumns(db, 'documents')
   const hasSummary = docCols.has('summary')
 
@@ -76,6 +94,10 @@ function migrateSplitDocumentAnalysis(db: Database.Database): void {
   if (!docCols.has('indexed_at')) {
     db.exec('ALTER TABLE documents ADD COLUMN indexed_at TEXT')
   }
+  if (!docCols.has('updated_at')) {
+    db.exec("ALTER TABLE documents ADD COLUMN updated_at TEXT")
+    db.exec("UPDATE documents SET updated_at = '2024-01-01 00:00:00' WHERE updated_at IS NULL")
+  }
 
   // Create document_analysis table
   db.exec(`
@@ -88,7 +110,7 @@ function migrateSplitDocumentAnalysis(db: Database.Database): void {
       todo_list TEXT,
       tags TEXT,
       analysis_version INTEGER DEFAULT 1,
-      source_history_id TEXT,
+      source_history_id TEXT REFERENCES analysis_history(id) ON DELETE SET NULL,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
@@ -120,6 +142,8 @@ function migrateSplitDocumentAnalysis(db: Database.Database): void {
       db.exec(`ALTER TABLE documents DROP COLUMN ${col}`)
     }
   }
+
+  assertForeignKeyCheck(db, '1')
 }
 
 // ── Migration 2: Create document_vector_indexes ─────────────────────────
@@ -129,9 +153,9 @@ function migrateCreateDocumentVectorIndexes(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS document_vector_indexes (
       id TEXT PRIMARY KEY,
       document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-      knowledge_base_id TEXT REFERENCES knowledge_bases(id) ON DELETE SET NULL,
+      knowledge_base_id TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
       backend TEXT NOT NULL DEFAULT 'chroma',
-      collection_name TEXT,
+      collection_name TEXT NOT NULL DEFAULT 'documents',
       embedding_provider TEXT,
       embedding_model TEXT,
       embedding_dimensions INTEGER,
@@ -142,7 +166,7 @@ function migrateCreateDocumentVectorIndexes(db: Database.Database): void {
       indexed_at TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(document_id, knowledge_base_id, backend, collection_name)
+      UNIQUE(document_id, knowledge_base_id, backend, collection_name, index_version)
     )
   `)
 
@@ -251,13 +275,19 @@ function migrateUnifyPaperMetadata(db: Database.Database): void {
   `)
 
   // Resolve duplicate global and KB-scoped candidates before adding partial unique indexes
-  // Keep the most recently updated row for each (paper_id, knowledge_base_id) pair
+  // Keep the best candidate per (paper_id, knowledge_base_id) pair:
+  // most recently updated, then highest priority score
   db.exec(`
     DELETE FROM discovery_candidates
     WHERE rowid NOT IN (
-      SELECT MAX(rowid)
-      FROM discovery_candidates
-      GROUP BY paper_id, COALESCE(knowledge_base_id, '__GLOBAL__')
+      SELECT rowid FROM (
+        SELECT rowid, ROW_NUMBER() OVER (
+          PARTITION BY paper_id, COALESCE(knowledge_base_id, '__GLOBAL__')
+          ORDER BY updated_at DESC, discovery_priority_score DESC
+        ) AS rn
+        FROM discovery_candidates
+      )
+      WHERE rn = 1
     )
   `)
 
@@ -273,8 +303,7 @@ function migrateUnifyPaperMetadata(db: Database.Database): void {
   }
 
   // Recreate indexes
-  db.exec('CREATE INDEX IF NOT EXISTS idx_discovery_candidates_kb_id ON discovery_candidates(knowledge_base_id)')
-  db.exec('CREATE INDEX IF NOT EXISTS idx_discovery_candidates_state ON discovery_candidates(state)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_discovery_candidates_kb_state ON discovery_candidates(knowledge_base_id, state)')
   db.exec('CREATE INDEX IF NOT EXISTS idx_discovery_candidates_paper_id ON discovery_candidates(paper_id)')
 
   // Add partial unique indexes
@@ -288,4 +317,6 @@ function migrateUnifyPaperMetadata(db: Database.Database): void {
       ON discovery_candidates(paper_id, knowledge_base_id)
       WHERE knowledge_base_id IS NOT NULL
   `)
+
+  assertForeignKeyCheck(db, '3')
 }

@@ -101,7 +101,7 @@ describe('knowledgeBaseRoutes - reindex', () => {
     await app.request('/api/knowledge-bases/kb-1/documents/doc-1/reindex', { method: 'POST' })
 
     expect(storage.updateDocumentLifecycle).toHaveBeenCalledWith('doc-1', 'indexing')
-    expect(storage.updateDocumentIndexStatus).toHaveBeenCalledWith('doc-1', 'indexed', null)
+    expect(storage.updateDocumentIndexStatus).toHaveBeenCalledWith('doc-1', 'indexed', null, 'kb-1')
   })
 
   it('records index_failed when Python throws', async () => {
@@ -111,7 +111,7 @@ describe('knowledgeBaseRoutes - reindex', () => {
     const res = await app.request('/api/knowledge-bases/kb-1/documents/doc-1/reindex', { method: 'POST' })
 
     expect(res.status).toBe(500)
-    expect(storage.updateDocumentIndexStatus).toHaveBeenCalledWith('doc-1', 'index_failed', 'embedding timeout')
+    expect(storage.updateDocumentIndexStatus).toHaveBeenCalledWith('doc-1', 'index_failed', 'embedding timeout', 'kb-1')
   })
 
   it('returns 404 for non-existent document', async () => {

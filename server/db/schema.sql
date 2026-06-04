@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS documents (
   file_path TEXT,
   file_type TEXT,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
   match_score REAL,
   lifecycle_status TEXT DEFAULT 'analyzed'
 );
@@ -20,7 +21,7 @@ CREATE TABLE IF NOT EXISTS document_analysis (
   todo_list TEXT,
   tags TEXT,
   analysis_version INTEGER DEFAULT 1,
-  source_history_id TEXT,
+  source_history_id TEXT REFERENCES analysis_history(id) ON DELETE SET NULL,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
@@ -30,7 +31,7 @@ CREATE TABLE IF NOT EXISTS chunks (
   document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
   content TEXT NOT NULL,
   embedding BLOB,
-  chunk_index INTEGER
+  chunk_index INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS config (
@@ -153,9 +154,9 @@ CREATE TABLE IF NOT EXISTS paper_edges (
 CREATE TABLE IF NOT EXISTS document_vector_indexes (
   id TEXT PRIMARY KEY,
   document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-  knowledge_base_id TEXT REFERENCES knowledge_bases(id) ON DELETE SET NULL,
+  knowledge_base_id TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
   backend TEXT NOT NULL DEFAULT 'chroma',
-  collection_name TEXT,
+  collection_name TEXT NOT NULL DEFAULT 'documents',
   embedding_provider TEXT,
   embedding_model TEXT,
   embedding_dimensions INTEGER,
@@ -166,7 +167,7 @@ CREATE TABLE IF NOT EXISTS document_vector_indexes (
   indexed_at TEXT,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE(document_id, knowledge_base_id, backend, collection_name)
+  UNIQUE(document_id, knowledge_base_id, backend, collection_name, index_version)
 );
 
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -176,8 +177,7 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 );
 
 -- Indexes
-CREATE INDEX IF NOT EXISTS idx_discovery_candidates_kb_id ON discovery_candidates(knowledge_base_id);
-CREATE INDEX IF NOT EXISTS idx_discovery_candidates_state ON discovery_candidates(state);
+CREATE INDEX IF NOT EXISTS idx_discovery_candidates_kb_state ON discovery_candidates(knowledge_base_id, state);
 CREATE INDEX IF NOT EXISTS idx_discovery_candidates_paper_id ON discovery_candidates(paper_id);
 
 CREATE INDEX IF NOT EXISTS idx_batch_items_run_id ON batch_items(batch_run_id);
@@ -186,8 +186,11 @@ CREATE INDEX IF NOT EXISTS idx_batch_runs_created_at ON batch_runs(created_at DE
 CREATE INDEX IF NOT EXISTS idx_qa_messages_session_id ON qa_messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_qa_sessions_updated_at ON qa_sessions(updated_at DESC);
 
+CREATE INDEX IF NOT EXISTS idx_documents_created_at ON documents(created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_chunks_doc_chunk_index ON chunks(document_id, chunk_index);
 CREATE INDEX IF NOT EXISTS idx_chunks_document_id ON chunks(document_id);
 CREATE INDEX IF NOT EXISTS idx_analysis_history_created_at ON analysis_history(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_document_analysis_updated_at ON document_analysis(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_dkb_kb_id ON document_knowledge_bases(knowledge_base_id);
 CREATE INDEX IF NOT EXISTS idx_dkb_doc_id ON document_knowledge_bases(document_id);
 CREATE INDEX IF NOT EXISTS idx_readme_suggestions_kb_id ON readme_suggestions(knowledge_base_id);
@@ -199,6 +202,8 @@ CREATE INDEX IF NOT EXISTS idx_paper_edges_seed ON paper_edges(source_seed_paper
 CREATE INDEX IF NOT EXISTS idx_dvi_document_id ON document_vector_indexes(document_id);
 CREATE INDEX IF NOT EXISTS idx_dvi_kb_id ON document_vector_indexes(knowledge_base_id);
 CREATE INDEX IF NOT EXISTS idx_dvi_status ON document_vector_indexes(status);
+CREATE INDEX IF NOT EXISTS idx_document_vector_indexes_kb_status ON document_vector_indexes(knowledge_base_id, status);
+CREATE INDEX IF NOT EXISTS idx_document_vector_indexes_collection ON document_vector_indexes(backend, collection_name);
 
 -- Partial unique indexes for discovery: one global candidate per paper, one KB-scoped per (paper, KB)
 CREATE UNIQUE INDEX IF NOT EXISTS idx_discovery_global_unique

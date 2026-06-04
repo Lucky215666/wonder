@@ -109,6 +109,7 @@ export interface PaperNodeRow {
   abstract: string | null
   year: number | null
   citation_count: number
+  influential_citation_count: number
   venue: string | null
   authors: string | null
   url: string | null
@@ -253,8 +254,8 @@ export class StorageService {
   updateDocumentIndexStatus(id: string, status: string, error?: string | null, knowledgeBaseId?: string | null) {
     const kbId = knowledgeBaseId ?? null
     const existing = this.db.prepare(
-      'SELECT id FROM document_vector_indexes WHERE document_id = ? AND (knowledge_base_id = ? OR (knowledge_base_id IS NULL AND ? IS NULL))'
-    ).get(id, kbId, kbId) as { id: string } | undefined
+      'SELECT id FROM document_vector_indexes WHERE document_id = ? AND knowledge_base_id = ?'
+    ).get(id, kbId) as { id: string } | undefined
 
     if (existing) {
       this.db.prepare(`
@@ -497,6 +498,7 @@ export class StorageService {
         abstract: candidate.abstract ?? undefined,
         year: candidate.year ?? undefined,
         citationCount: candidate.citationCount ?? undefined,
+        influentialCitationCount: candidate.influentialCitationCount ?? undefined,
         venue: candidate.venue ?? undefined,
         authors: candidate.authors ?? undefined,
         url: candidate.url ?? undefined,
@@ -629,15 +631,16 @@ export class StorageService {
 
   upsertPaperNode(node: {
     paperId: string; title: string; abstract?: string | null;
-    year?: number | null; citationCount?: number; venue?: string | null;
-    authors?: string | null; url?: string | null
+    year?: number | null; citationCount?: number; influentialCitationCount?: number;
+    venue?: string | null; authors?: string | null; url?: string | null
   }) {
     this.db.prepare(`
-      INSERT INTO paper_nodes (paper_id, title, abstract, year, citation_count, venue, authors, url, updated_at)
-      VALUES (@paperId, @title, @abstract, @year, @citationCount, @venue, @authors, @url, datetime('now'))
+      INSERT INTO paper_nodes (paper_id, title, abstract, year, citation_count, influential_citation_count, venue, authors, url, updated_at)
+      VALUES (@paperId, @title, @abstract, @year, @citationCount, @influentialCitationCount, @venue, @authors, @url, datetime('now'))
       ON CONFLICT(paper_id) DO UPDATE SET
         title=excluded.title, abstract=COALESCE(excluded.abstract, abstract),
         year=COALESCE(excluded.year, year), citation_count=excluded.citation_count,
+        influential_citation_count=excluded.influential_citation_count,
         venue=COALESCE(excluded.venue, venue), authors=COALESCE(excluded.authors, authors),
         url=COALESCE(excluded.url, url), updated_at=datetime('now')
     `).run({
@@ -646,6 +649,7 @@ export class StorageService {
       abstract: node.abstract ?? null,
       year: node.year ?? null,
       citationCount: node.citationCount ?? 0,
+      influentialCitationCount: node.influentialCitationCount ?? 0,
       venue: node.venue ?? null,
       authors: node.authors ?? null,
       url: node.url ?? null,

@@ -95,17 +95,20 @@ describe('StorageService', () => {
   })
 
   it('should update document index status via vector ledger', () => {
+    storage.createKnowledgeBase({ id: 'kb-test', name: 'Test KB' })
     storage.upsertDocument({ id: 'doc1', fileName: 'test.pdf', fileType: 'pdf' })
-    storage.updateDocumentIndexStatus('doc1', 'indexed')
+    storage.updateDocumentIndexStatus('doc1', 'indexed', null, 'kb-test')
     const row = db.prepare('SELECT * FROM document_vector_indexes WHERE document_id = ?').get('doc1') as any
     expect(row).toBeDefined()
     expect(row.status).toBe('indexed')
     expect(row.indexed_at).not.toBeNull()
+    expect(row.knowledge_base_id).toBe('kb-test')
   })
 
   it('should record index error on failure', () => {
+    storage.createKnowledgeBase({ id: 'kb-test', name: 'Test KB' })
     storage.upsertDocument({ id: 'doc1', fileName: 'test.pdf', fileType: 'pdf' })
-    storage.updateDocumentIndexStatus('doc1', 'index_failed', 'embedding timeout')
+    storage.updateDocumentIndexStatus('doc1', 'index_failed', 'embedding timeout', 'kb-test')
     const row = db.prepare('SELECT * FROM document_vector_indexes WHERE document_id = ?').get('doc1') as any
     expect(row).toBeDefined()
     expect(row.status).toBe('index_failed')
@@ -609,6 +612,126 @@ describe('StorageService', () => {
       expect(dcRows[0].paper_id).toBe('paper-new')
       expect(dcRows[0].state).toBe('saved')
       expect(dcRows[1].paper_id).toBe('paper-existing')
+    })
+
+    it('should pass foreign_key_check after migration', () => {
+      createOldSchema((db) => {
+        db.exec(`
+          CREATE TABLE knowledge_bases (
+            id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT, readme TEXT NOT NULL DEFAULT '',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+          )
+        `)
+        db.exec(`
+          CREATE TABLE document_knowledge_bases (
+            document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            knowledge_base_id TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+            sub_direction TEXT, tags TEXT, fit_score REAL, recommended_action TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (document_id, knowledge_base_id)
+          )
+        `)
+        db.exec(`
+          CREATE TABLE paper_nodes (
+            paper_id TEXT PRIMARY KEY, title TEXT NOT NULL, abstract TEXT, year INTEGER,
+            citation_count INTEGER DEFAULT 0, venue TEXT, authors TEXT, url TEXT,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+          )
+        `)
+        db.exec(`
+          CREATE TABLE discovery_candidates (
+            id TEXT PRIMARY KEY, paper_id TEXT NOT NULL, title TEXT NOT NULL, abstract TEXT,
+            year INTEGER, citation_count INTEGER DEFAULT 0, influential_citation_count INTEGER DEFAULT 0,
+            venue TEXT, authors TEXT, url TEXT, source_query TEXT,
+            discovery_priority_score REAL DEFAULT 0, discovery_reason TEXT,
+            state TEXT NOT NULL DEFAULT 'saved',
+            knowledge_base_id TEXT REFERENCES knowledge_bases(id) ON DELETE SET NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+          )
+        `)
+        db.exec(`INSERT INTO documents (id, file_name, summary) VALUES ('doc1', 'test.pdf', 'old summary')`)
+        db.exec(`INSERT INTO knowledge_bases (id, name) VALUES ('kb-1', 'Test KB')`)
+        db.exec(`INSERT INTO document_knowledge_bases (document_id, knowledge_base_id) VALUES ('doc1', 'kb-1')`)
+      })
+
+      migratedDb = new Database(MIGRATION_DB)
+      migratedDb.pragma('foreign_keys = ON')
+      new StorageService(migratedDb)
+
+      // PRAGMA foreign_key_check returns empty if all FKs are valid
+      const violations = migratedDb.prepare('PRAGMA foreign_key_check').all() as any[]
+      expect(violations).toHaveLength(0)
+    })
+
+    it('should deterministically keep best candidate during duplicate resolution in migration 3', () => {
+      const dupDb = path.join(__dirname, 'dup-test.db')
+      try {
+        // Create old schema
+        const setupDb = new Database(dupDb)
+        setupDb.exec(`
+          CREATE TABLE documents (
+            id TEXT PRIMARY KEY, file_name TEXT NOT NULL, file_path TEXT, file_type TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP, summary TEXT, reading_card TEXT,
+            relation_analysis TEXT, writing_materials TEXT, todo_list TEXT, tags TEXT,
+            match_score REAL, lifecycle_status TEXT DEFAULT 'analyzed',
+            index_status TEXT DEFAULT 'not_indexed', index_error TEXT, indexed_at TEXT
+          )
+        `)
+        setupDb.exec(`
+          CREATE TABLE knowledge_bases (
+            id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT, readme TEXT NOT NULL DEFAULT '',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+          )
+        `)
+        setupDb.exec(`
+          CREATE TABLE paper_nodes (
+            paper_id TEXT PRIMARY KEY, title TEXT NOT NULL, abstract TEXT, year INTEGER,
+            citation_count INTEGER DEFAULT 0, venue TEXT, authors TEXT, url TEXT,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+          )
+        `)
+        setupDb.exec(`
+          CREATE TABLE discovery_candidates (
+            id TEXT PRIMARY KEY, paper_id TEXT NOT NULL, title TEXT NOT NULL, abstract TEXT,
+            year INTEGER, citation_count INTEGER DEFAULT 0, influential_citation_count INTEGER DEFAULT 0,
+            venue TEXT, authors TEXT, url TEXT, source_query TEXT,
+            discovery_priority_score REAL DEFAULT 0, discovery_reason TEXT,
+            state TEXT NOT NULL DEFAULT 'saved',
+            knowledge_base_id TEXT REFERENCES knowledge_bases(id) ON DELETE SET NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+          )
+        `)
+        // Insert two candidates with same paper_id but different updated_at and priority
+        setupDb.exec(`
+          INSERT INTO discovery_candidates (id, paper_id, title, discovery_priority_score, state, updated_at)
+          VALUES ('dc-old', 'paper-dup', 'Old Candidate', 10, 'saved', '2024-01-01 00:00:00')
+        `)
+        setupDb.exec(`
+          INSERT INTO discovery_candidates (id, paper_id, title, discovery_priority_score, state, updated_at)
+          VALUES ('dc-new', 'paper-dup', 'New Candidate', 90, 'saved', '2024-06-01 00:00:00')
+        `)
+        setupDb.close()
+
+        const testDb = new Database(dupDb)
+        new StorageService(testDb)
+
+        const dcRows = testDb.prepare('SELECT * FROM discovery_candidates').all() as any[]
+        expect(dcRows).toHaveLength(1)
+        // The newer row with higher priority should survive (dc-new)
+        expect(dcRows[0].id).toBe('dc-new')
+
+        // Verify paper_nodes got the right title
+        const paper = testDb.prepare('SELECT * FROM paper_nodes WHERE paper_id = ?').get('paper-dup') as any
+        expect(paper).toBeTruthy()
+        expect(paper.title).toBe('New Candidate')
+
+        testDb.close()
+      } finally {
+        for (const suffix of ['', '-wal', '-shm']) {
+          const f = dupDb + suffix
+          if (fs.existsSync(f)) { try { fs.unlinkSync(f) } catch { /* ignore */ } }
+        }
+      }
     })
   })
 })
