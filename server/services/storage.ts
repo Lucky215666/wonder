@@ -156,6 +156,24 @@ export interface QAMessageRow {
   created_at: string
 }
 
+export interface DocumentVectorIndexRow {
+  id: string
+  document_id: string
+  knowledge_base_id: string
+  backend: string
+  collection_name: string
+  embedding_provider: string | null
+  embedding_model: string | null
+  embedding_dimensions: number | null
+  chunk_count: number
+  index_version: number
+  status: string
+  error: string | null
+  indexed_at: string | null
+  created_at: string
+  updated_at: string
+}
+
 // ── StorageService ──────────────────────────────────────────────────────
 
 export class StorageService {
@@ -233,6 +251,12 @@ export class StorageService {
     `).get(id) as DocumentRow | undefined
   }
 
+  getDocumentAnalysis(documentId: string): DocumentAnalysisRow | undefined {
+    return this.db.prepare(
+      'SELECT * FROM document_analysis WHERE document_id = ?'
+    ).get(documentId) as DocumentAnalysisRow | undefined
+  }
+
   listDocuments(): DocumentRow[] {
     return this.db.prepare(`
       SELECT d.*, da.summary, da.reading_card, da.relation_analysis,
@@ -271,6 +295,78 @@ export class StorageService {
         VALUES (?, ?, ?, ?, ?, CASE WHEN ? = 'indexed' THEN datetime('now') ELSE NULL END)
       `).run(randomUUID(), id, kbId, status, error ?? null, status)
     }
+  }
+
+  upsertDocumentVectorIndex(index: {
+    id: string; documentId: string; knowledgeBaseId: string;
+    backend?: string; collectionName?: string;
+    embeddingProvider?: string | null; embeddingModel?: string | null;
+    embeddingDimensions?: number | null; chunkCount?: number;
+    indexVersion?: number; status?: string;
+  }) {
+    this.db.prepare(`
+      INSERT INTO document_vector_indexes
+        (id, document_id, knowledge_base_id, backend, collection_name,
+         embedding_provider, embedding_model, embedding_dimensions,
+         chunk_count, index_version, status)
+      VALUES (@id, @documentId, @knowledgeBaseId, @backend, @collectionName,
+              @embeddingProvider, @embeddingModel, @embeddingDimensions,
+              @chunkCount, @indexVersion, @status)
+      ON CONFLICT(id) DO UPDATE SET
+        document_id=excluded.document_id, knowledge_base_id=excluded.knowledge_base_id,
+        backend=excluded.backend, collection_name=excluded.collection_name,
+        embedding_provider=COALESCE(excluded.embedding_provider, embedding_provider),
+        embedding_model=COALESCE(excluded.embedding_model, embedding_model),
+        embedding_dimensions=COALESCE(excluded.embedding_dimensions, embedding_dimensions),
+        chunk_count=excluded.chunk_count, index_version=excluded.index_version,
+        status=excluded.status, updated_at=datetime('now')
+    `).run({
+      id: index.id,
+      documentId: index.documentId,
+      knowledgeBaseId: index.knowledgeBaseId,
+      backend: index.backend ?? 'chroma',
+      collectionName: index.collectionName ?? 'documents',
+      embeddingProvider: index.embeddingProvider ?? null,
+      embeddingModel: index.embeddingModel ?? null,
+      embeddingDimensions: index.embeddingDimensions ?? null,
+      chunkCount: index.chunkCount ?? 0,
+      indexVersion: index.indexVersion ?? 1,
+      status: index.status ?? 'not_indexed',
+    })
+  }
+
+  getVectorIndexesForDocument(documentId: string): DocumentVectorIndexRow[] {
+    return this.db.prepare(
+      'SELECT * FROM document_vector_indexes WHERE document_id = ? ORDER BY created_at'
+    ).all(documentId) as DocumentVectorIndexRow[]
+  }
+
+  getVectorIndexesForKnowledgeBase(knowledgeBaseId: string, status?: string): DocumentVectorIndexRow[] {
+    if (status) {
+      return this.db.prepare(
+        'SELECT * FROM document_vector_indexes WHERE knowledge_base_id = ? AND status = ? ORDER BY created_at'
+      ).all(knowledgeBaseId, status) as DocumentVectorIndexRow[]
+    }
+    return this.db.prepare(
+      'SELECT * FROM document_vector_indexes WHERE knowledge_base_id = ? ORDER BY created_at'
+    ).all(knowledgeBaseId) as DocumentVectorIndexRow[]
+  }
+
+  markVectorIndexStatus(id: string, status: string, error?: string | null) {
+    this.db.prepare(`
+      UPDATE document_vector_indexes SET
+        status = ?, error = ?,
+        indexed_at = CASE WHEN ? = 'indexed' THEN datetime('now') ELSE indexed_at END,
+        updated_at = datetime('now')
+      WHERE id = ?
+    `).run(status, error ?? null, status, id)
+  }
+
+  markDocumentIndexesStale(documentId: string) {
+    this.db.prepare(`
+      UPDATE document_vector_indexes SET status = 'stale', updated_at = datetime('now')
+      WHERE document_id = ? AND status != 'stale'
+    `).run(documentId)
   }
 
   // ── Chunk methods ───────────────────────────────────────────────────

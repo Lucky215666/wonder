@@ -116,6 +116,161 @@ describe('StorageService', () => {
     expect(row.indexed_at).toBeNull()
   })
 
+  // ── Document Analysis tests ──────────────────────────────────────────
+
+  it('should retrieve document analysis via standalone getter', () => {
+    storage.upsertDocument({
+      id: 'doc1',
+      fileName: 'paper.pdf',
+      fileType: 'pdf',
+      summary: 'summary',
+      readingCard: 'card',
+      relationAnalysis: 'relation',
+      writingMaterials: 'writing',
+      todoList: 'todo',
+      tags: 'rag,llm',
+      matchScore: 88,
+    })
+
+    const doc = storage.getDocument('doc1')!
+    expect(doc.summary).toBe('summary')
+    expect(doc.reading_card).toBe('card')
+    expect(doc.match_score).toBe(88)
+
+    const analysis = storage.getDocumentAnalysis('doc1')!
+    expect(analysis).toBeDefined()
+    expect(analysis.document_id).toBe('doc1')
+    expect(analysis.summary).toBe('summary')
+    expect(analysis.reading_card).toBe('card')
+    expect(analysis.tags).toBe('rag,llm')
+  })
+
+  it('should return undefined from getDocumentAnalysis for nonexistent doc', () => {
+    expect(storage.getDocumentAnalysis('nonexistent')).toBeUndefined()
+  })
+
+  // ── Vector Ledger tests ────────────────────────────────────────────
+
+  it('should upsert and retrieve a document vector index', () => {
+    storage.createKnowledgeBase({ id: 'kb1', name: 'KB1' })
+    storage.upsertDocument({ id: 'doc1', fileName: 'paper.pdf', fileType: 'pdf' })
+    storage.upsertDocumentVectorIndex({
+      id: 'idx1',
+      documentId: 'doc1',
+      knowledgeBaseId: 'kb1',
+      backend: 'chroma',
+      collectionName: 'documents__openai__small__1536',
+      embeddingProvider: 'openai_compatible',
+      embeddingModel: 'text-embedding-3-small',
+      embeddingDimensions: 1536,
+      chunkCount: 3,
+      indexVersion: 1,
+      status: 'indexed',
+    })
+
+    const indexes = storage.getVectorIndexesForDocument('doc1')
+    expect(indexes).toHaveLength(1)
+    expect(indexes[0].id).toBe('idx1')
+    expect(indexes[0].document_id).toBe('doc1')
+    expect(indexes[0].knowledge_base_id).toBe('kb1')
+    expect(indexes[0].backend).toBe('chroma')
+    expect(indexes[0].collection_name).toBe('documents__openai__small__1536')
+    expect(indexes[0].embedding_provider).toBe('openai_compatible')
+    expect(indexes[0].embedding_model).toBe('text-embedding-3-small')
+    expect(indexes[0].embedding_dimensions).toBe(1536)
+    expect(indexes[0].chunk_count).toBe(3)
+    expect(indexes[0].index_version).toBe(1)
+    expect(indexes[0].status).toBe('indexed')
+  })
+
+  it('should filter vector indexes by knowledge base and status', () => {
+    storage.createKnowledgeBase({ id: 'kb1', name: 'KB1' })
+    storage.createKnowledgeBase({ id: 'kb2', name: 'KB2' })
+    storage.upsertDocument({ id: 'doc1', fileName: 'a.pdf', fileType: 'pdf' })
+    storage.upsertDocument({ id: 'doc2', fileName: 'b.pdf', fileType: 'pdf' })
+
+    storage.upsertDocumentVectorIndex({
+      id: 'idx1', documentId: 'doc1', knowledgeBaseId: 'kb1',
+      backend: 'chroma', collectionName: 'col1', status: 'indexed',
+    })
+    storage.upsertDocumentVectorIndex({
+      id: 'idx2', documentId: 'doc2', knowledgeBaseId: 'kb1',
+      backend: 'chroma', collectionName: 'col1', status: 'stale',
+    })
+    storage.upsertDocumentVectorIndex({
+      id: 'idx3', documentId: 'doc1', knowledgeBaseId: 'kb2',
+      backend: 'chroma', collectionName: 'col1', status: 'indexed',
+    })
+
+    expect(storage.getVectorIndexesForKnowledgeBase('kb1')).toHaveLength(2)
+    expect(storage.getVectorIndexesForKnowledgeBase('kb1', 'indexed')).toHaveLength(1)
+    expect(storage.getVectorIndexesForKnowledgeBase('kb1', 'indexed')[0].id).toBe('idx1')
+    expect(storage.getVectorIndexesForKnowledgeBase('kb2', 'indexed')).toHaveLength(1)
+  })
+
+  it('should mark vector index status with error', () => {
+    storage.createKnowledgeBase({ id: 'kb1', name: 'KB1' })
+    storage.upsertDocument({ id: 'doc1', fileName: 'a.pdf', fileType: 'pdf' })
+    storage.upsertDocumentVectorIndex({
+      id: 'idx1', documentId: 'doc1', knowledgeBaseId: 'kb1',
+      backend: 'chroma', collectionName: 'col1', status: 'indexing',
+    })
+
+    storage.markVectorIndexStatus('idx1', 'indexed')
+    const idx = storage.getVectorIndexesForDocument('doc1')[0]
+    expect(idx.status).toBe('indexed')
+    expect(idx.indexed_at).not.toBeNull()
+    expect(idx.error).toBeNull()
+
+    storage.markVectorIndexStatus('idx1', 'failed', 'embedding timeout')
+    const failed = storage.getVectorIndexesForDocument('doc1')[0]
+    expect(failed.status).toBe('failed')
+    expect(failed.error).toBe('embedding timeout')
+  })
+
+  it('should mark all document indexes as stale', () => {
+    storage.createKnowledgeBase({ id: 'kb1', name: 'KB1' })
+    storage.createKnowledgeBase({ id: 'kb2', name: 'KB2' })
+    storage.upsertDocument({ id: 'doc1', fileName: 'a.pdf', fileType: 'pdf' })
+
+    storage.upsertDocumentVectorIndex({
+      id: 'idx1', documentId: 'doc1', knowledgeBaseId: 'kb1',
+      backend: 'chroma', collectionName: 'col1', status: 'indexed',
+    })
+    storage.upsertDocumentVectorIndex({
+      id: 'idx2', documentId: 'doc1', knowledgeBaseId: 'kb2',
+      backend: 'chroma', collectionName: 'col1', status: 'indexed',
+    })
+
+    storage.markDocumentIndexesStale('doc1')
+    const indexes = storage.getVectorIndexesForDocument('doc1')
+    expect(indexes).toHaveLength(2)
+    expect(indexes.every(i => i.status === 'stale')).toBe(true)
+  })
+
+  it('should return empty array for document with no vector indexes', () => {
+    storage.upsertDocument({ id: 'doc1', fileName: 'a.pdf', fileType: 'pdf' })
+    expect(storage.getVectorIndexesForDocument('doc1')).toHaveLength(0)
+  })
+
+  it('should upsert vector index on conflict (same unique key)', () => {
+    storage.createKnowledgeBase({ id: 'kb1', name: 'KB1' })
+    storage.upsertDocument({ id: 'doc1', fileName: 'a.pdf', fileType: 'pdf' })
+
+    storage.upsertDocumentVectorIndex({
+      id: 'idx1', documentId: 'doc1', knowledgeBaseId: 'kb1',
+      backend: 'chroma', collectionName: 'col1', chunkCount: 3, status: 'indexed',
+    })
+    storage.upsertDocumentVectorIndex({
+      id: 'idx1', documentId: 'doc1', knowledgeBaseId: 'kb1',
+      backend: 'chroma', collectionName: 'col1', chunkCount: 5, status: 'indexed',
+    })
+
+    const indexes = storage.getVectorIndexesForDocument('doc1')
+    expect(indexes).toHaveLength(1)
+    expect(indexes[0].chunk_count).toBe(5)
+  })
+
   // ── Discovery candidate tests ──────────────────────────────────────
 
   it('should insert and retrieve a discovery candidate', () => {
