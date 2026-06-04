@@ -6,6 +6,37 @@ from typing import List, Optional
 from .base import BaseAgent
 
 
+def normalize_source_refs(source_refs: list) -> list[dict]:
+    normalized = []
+    for ref in source_refs or []:
+        data = ref.model_dump() if hasattr(ref, "model_dump") else dict(ref)
+        doc_id = data.get("document_id") or data.get("doc_id")
+        snippet = data.get("snippet") or data.get("content") or ""
+        normalized.append({
+            "item_type": data.get("item_type"),
+            "card_id": data.get("card_id"),
+            "doc_id": doc_id,
+            "document_id": doc_id,
+            "file_name": data.get("file_name") or "",
+            "chunk_id": data.get("chunk_id"),
+            "chunk_index": data.get("chunk_index"),
+            "chunk_type": data.get("chunk_type") or "content",
+            "content": snippet,
+            "snippet": snippet,
+            "score": data.get("score"),
+        })
+    return normalized
+
+
+def linked_doc_ids_from_refs(source_refs: list[dict]) -> list[str]:
+    ids = []
+    for ref in source_refs:
+        doc_id = ref.get("document_id") or ref.get("doc_id")
+        if doc_id and doc_id not in ids:
+            ids.append(doc_id)
+    return ids
+
+
 class ResearchCardDraftAgent(BaseAgent):
     """Given a QA question, answer, and source references, produce a structured
     research card draft (core claims, knowledge type, tags, etc.)."""
@@ -41,7 +72,7 @@ Output ONLY a JSON object, no markdown fences, no extra text."""
 
         Returns a dict matching ResearchCardDraftResponse fields.
         """
-        refs = source_refs or []
+        refs = normalize_source_refs(source_refs or [])
         refs_json = json.dumps(refs, ensure_ascii=False, indent=2)
 
         mode_line = f"\nAnswer mode: {answer_mode}" if answer_mode else ""
@@ -66,10 +97,25 @@ validation_notes, use_cases, linked_doc_ids, no_paper_evidence, evidence_refs"""
             max_tokens=2500,
         )
 
-        return self._parse_response(raw, question, refs)
+        return self._parse_response(raw, question, answer, answer_mode, refs)
 
-    @staticmethod
-    def _parse_response(raw: str, question: str, source_refs: List[dict]) -> dict:
+    def build_fallback(self, question: str, answer: str, answer_mode: str | None, source_refs: list[dict]) -> dict:
+        no_paper_evidence = answer_mode == "general" or len(source_refs) == 0
+        claim = re.sub(r"\s+", " ", answer).strip()[:300]
+        return {
+            "question": question,
+            "core_claims": [claim] if claim else ["需要进一步整理这次问答的核心结论"],
+            "knowledge_type": "other",
+            "tags": [],
+            "sub_direction": "",
+            "validation_notes": "无论文证据" if no_paper_evidence else "基于本轮问答来源生成，保存前建议复核证据。",
+            "use_cases": [],
+            "linked_doc_ids": linked_doc_ids_from_refs(source_refs),
+            "no_paper_evidence": no_paper_evidence,
+            "evidence_refs": source_refs,
+        }
+
+    def _parse_response(self, raw: str, question: str, answer: str, answer_mode: str | None, source_refs: List[dict]) -> dict:
         """Parse LLM output into a validated dict, with safe fallbacks."""
         cleaned = raw.strip()
         if cleaned.startswith("```"):
@@ -79,19 +125,7 @@ validation_notes, use_cases, linked_doc_ids, no_paper_evidence, evidence_refs"""
         try:
             data = json.loads(cleaned)
         except (json.JSONDecodeError, ValueError):
-            # Fallback: minimal card from raw text
-            return {
-                "question": question,
-                "core_claims": [cleaned[:500]] if cleaned else ["(empty)"],
-                "knowledge_type": "other",
-                "tags": [],
-                "sub_direction": "",
-                "validation_notes": "Auto-generated fallback; LLM output was not valid JSON.",
-                "use_cases": [],
-                "linked_doc_ids": [],
-                "no_paper_evidence": len(source_refs) == 0,
-                "evidence_refs": [],
-            }
+            return self.build_fallback(question, answer, answer_mode, source_refs)
 
         # Validate and fill defaults for missing keys
         valid_types = {

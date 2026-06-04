@@ -3,7 +3,7 @@ import json
 import pytest
 from unittest.mock import MagicMock, patch
 
-from backend.agents.research_card import ResearchCardDraftAgent
+from backend.agents.research_card import ResearchCardDraftAgent, normalize_source_refs, linked_doc_ids_from_refs
 
 
 # ── ResearchCardDraftAgent unit tests ────────────────────────────────────────
@@ -78,7 +78,7 @@ class TestResearchCardDraftAgent:
         assert result["question"] == "Q?"
         assert result["knowledge_type"] == "other"
         assert result["no_paper_evidence"] is True
-        assert "fallback" in result["validation_notes"].lower()
+        assert len(result["validation_notes"]) > 0
 
     def test_empty_llm_output_fallback(self):
         agent = self._make_agent("")
@@ -443,7 +443,11 @@ class TestResearchCardDraftAPI:
             "answer": "A",
         })
 
-        assert response.status_code == 500
+        assert response.status_code == 200
+        body = response.json()
+        assert body["knowledge_type"] == "other"
+        assert len(body["core_claims"]) >= 1
+        assert body["no_paper_evidence"] is True
 
     @patch("backend.api.research_cards._build_provider")
     def test_draft_endpoint_knowledge_type_defaults_to_other(self, mock_build):
@@ -500,3 +504,32 @@ class TestResearchCardDraftAPI:
             "linked_doc_ids", "no_paper_evidence", "evidence_refs",
         }
         assert expected_keys == set(body.keys())
+
+
+# ── Schema tests ─────────────────────────────────────────────────────────────
+
+
+def test_research_card_draft_request_accepts_legacy_source_ref_doc_id():
+    from backend.models.schemas import ResearchCardDraftRequest
+    req = ResearchCardDraftRequest(
+        question="q",
+        answer="a",
+        source_refs=[{"doc_id": "doc-1", "content": "evidence", "chunk_type": "content"}],
+    )
+    assert req.source_refs[0].doc_id == "doc-1"
+
+
+# ── Helper unit tests ────────────────────────────────────────────────────────
+
+
+def test_normalize_source_refs_maps_doc_id_to_document_id():
+    refs = normalize_source_refs([{"doc_id": "doc-1", "content": "snippet"}])
+    assert refs[0]["document_id"] == "doc-1"
+    assert refs[0]["snippet"] == "snippet"
+
+
+def test_fallback_marks_general_answer_as_no_paper_evidence():
+    agent = ResearchCardDraftAgent("test", provider=None)
+    draft = agent.build_fallback("q", "answer text", "general", [])
+    assert draft["no_paper_evidence"] is True
+    assert draft["core_claims"] == ["answer text"]
