@@ -17,6 +17,13 @@ function createApp() {
     ]),
     updateDocumentLifecycle: vi.fn(),
     updateDocumentIndexStatus: vi.fn(),
+    getConfig: vi.fn(() => JSON.stringify({
+      embedding: { provider: 'openai_compatible', model: 'text-embedding-3-small', dimensions: 1536 },
+    })),
+    upsertDocumentVectorIndex: vi.fn(),
+    getVectorIndexesForDocument: vi.fn(() => []),
+    markVectorIndexStatus: vi.fn(),
+    markDocumentIndexesStale: vi.fn(),
     listKnowledgeBases: vi.fn(() => []),
     getKnowledgeBase: vi.fn(() => ({ id: 'kb-1', name: 'Test KB', readme: '', description: 'desc', created_at: '', updated_at: '' })),
     getDocumentKBCount: vi.fn(() => 0),
@@ -41,7 +48,7 @@ function createApp() {
 }
 
 describe('knowledgeBaseRoutes - reindex', () => {
-  it('calls Python indexing endpoint with correct payload', async () => {
+  it('calls Python indexing endpoint with correct payload including ledger fields', async () => {
     const { app, python } = createApp()
 
     const res = await app.request('/api/knowledge-bases/kb-1/documents/doc-1/reindex', {
@@ -54,6 +61,11 @@ describe('knowledgeBaseRoutes - reindex', () => {
     expect(python.post).toHaveBeenCalledWith('/api/knowledge/documents/gateway', expect.objectContaining({
       doc_id: 'doc-1',
       knowledge_base_id: 'kb-1',
+      index_id: expect.any(String),
+      collection_name: 'documents__openai_compatible__text_embedding_3_small__1536',
+      embedding_provider: 'openai_compatible',
+      embedding_model: 'text-embedding-3-small',
+      embedding_dimensions: 1536,
       file_name: 'test.pdf',
       chunks: ['chunk one', 'chunk two'],
       summary: 'Summary',
@@ -95,23 +107,46 @@ describe('knowledgeBaseRoutes - reindex', () => {
     }))
   })
 
-  it('records index status on success', async () => {
+  it('records index status on success via vector ledger', async () => {
     const { app, storage } = createApp()
 
     await app.request('/api/knowledge-bases/kb-1/documents/doc-1/reindex', { method: 'POST' })
 
     expect(storage.updateDocumentLifecycle).toHaveBeenCalledWith('doc-1', 'indexing')
-    expect(storage.updateDocumentIndexStatus).toHaveBeenCalledWith('doc-1', 'indexed', null, 'kb-1')
+    expect(storage.upsertDocumentVectorIndex).toHaveBeenCalledWith(expect.objectContaining({
+      documentId: 'doc-1',
+      knowledgeBaseId: 'kb-1',
+      backend: 'chroma',
+      status: 'indexing',
+    }))
+    expect(storage.markVectorIndexStatus).toHaveBeenCalledWith(expect.any(String), 'indexed')
   })
 
-  it('records index_failed when Python throws', async () => {
+  it('marks old indexes stale and creates new version on reindex', async () => {
+    const { app, storage } = createApp()
+    storage.getVectorIndexesForDocument.mockReturnValueOnce([
+      { id: 'old-idx', document_id: 'doc-1', knowledge_base_id: 'kb-1', index_version: 2, status: 'indexed' },
+    ])
+
+    await app.request('/api/knowledge-bases/kb-1/documents/doc-1/reindex', { method: 'POST' })
+
+    expect(storage.markDocumentIndexesStale).toHaveBeenCalledWith('doc-1')
+    expect(storage.upsertDocumentVectorIndex).toHaveBeenCalledWith(expect.objectContaining({
+      documentId: 'doc-1',
+      knowledgeBaseId: 'kb-1',
+      indexVersion: 3,
+      status: 'indexing',
+    }))
+  })
+
+  it('records index_failed via vector ledger when Python throws', async () => {
     const { app, storage, python } = createApp()
     python.post.mockRejectedValueOnce(new Error('embedding timeout'))
 
     const res = await app.request('/api/knowledge-bases/kb-1/documents/doc-1/reindex', { method: 'POST' })
 
     expect(res.status).toBe(500)
-    expect(storage.updateDocumentIndexStatus).toHaveBeenCalledWith('doc-1', 'index_failed', 'embedding timeout', 'kb-1')
+    expect(storage.markVectorIndexStatus).toHaveBeenCalledWith(expect.any(String), 'failed', 'embedding timeout')
   })
 
   it('returns 404 for non-existent document', async () => {
@@ -120,6 +155,87 @@ describe('knowledgeBaseRoutes - reindex', () => {
     const res = await app.request('/api/knowledge-bases/kb-1/documents/nonexistent/reindex', { method: 'POST' })
 
     expect(res.status).toBe(404)
+  })
+})
+
+describe('knowledgeBaseRoutes - add to KB', () => {
+  it('creates a vector index ledger row and calls Python with ledger fields', async () => {
+    const { app, storage, python } = createApp()
+
+    const res = await app.request('/api/knowledge-bases/kb-1/documents', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ documentId: 'doc-1' }),
+    })
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body.success).toBe(true)
+    expect(storage.upsertDocumentVectorIndex).toHaveBeenCalledWith(expect.objectContaining({
+      documentId: 'doc-1',
+      knowledgeBaseId: 'kb-1',
+      backend: 'chroma',
+      collectionName: 'documents__openai_compatible__text_embedding_3_small__1536',
+      embeddingProvider: 'openai_compatible',
+      embeddingModel: 'text-embedding-3-small',
+      embeddingDimensions: 1536,
+      chunkCount: 2,
+      indexVersion: 1,
+      status: 'indexing',
+    }))
+    expect(python.post).toHaveBeenCalledWith('/api/knowledge/documents/gateway', expect.objectContaining({
+      doc_id: 'doc-1',
+      knowledge_base_id: 'kb-1',
+      index_id: expect.any(String),
+      collection_name: 'documents__openai_compatible__text_embedding_3_small__1536',
+      embedding_provider: 'openai_compatible',
+      embedding_model: 'text-embedding-3-small',
+      embedding_dimensions: 1536,
+    }))
+  })
+
+  it('marks vector index as indexed on success', async () => {
+    const { app, storage } = createApp()
+
+    await app.request('/api/knowledge-bases/kb-1/documents', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ documentId: 'doc-1' }),
+    })
+
+    // Wait for the async Python call to resolve
+    await vi.waitFor(() => {
+      expect(storage.markVectorIndexStatus).toHaveBeenCalledWith(expect.any(String), 'indexed')
+    })
+    expect(storage.updateDocumentLifecycle).toHaveBeenCalledWith('doc-1', 'indexed')
+  })
+
+  it('marks vector index as failed when Python throws', async () => {
+    const { app, storage, python } = createApp()
+    python.post.mockRejectedValueOnce(new Error('chroma down'))
+
+    await app.request('/api/knowledge-bases/kb-1/documents', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ documentId: 'doc-1' }),
+    })
+
+    await vi.waitFor(() => {
+      expect(storage.markVectorIndexStatus).toHaveBeenCalledWith(expect.any(String), 'failed', 'chroma down')
+    })
+    expect(storage.updateDocumentLifecycle).toHaveBeenCalledWith('doc-1', 'index_failed')
+  })
+
+  it('returns 400 when documentId is missing', async () => {
+    const { app } = createApp()
+
+    const res = await app.request('/api/knowledge-bases/kb-1/documents', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+
+    expect(res.status).toBe(400)
   })
 })
 

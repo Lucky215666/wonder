@@ -3,6 +3,29 @@ import { StorageService } from '../services/storage'
 import { PythonBackendClient } from '../services/python-backend'
 import { randomUUID } from 'crypto'
 
+function buildCollectionName(provider: string, model: string, dimensions: number): string {
+  const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+  return `documents__${normalize(provider)}__${normalize(model)}__${dimensions}`
+}
+
+function getEmbeddingInfo(storage: StorageService): { provider: string; model: string; dimensions: number; backend: string } {
+  let provider = 'openai_compatible'
+  let model = 'text-embedding-3-small'
+  let dimensions = 1536
+  try {
+    const raw = storage.getConfig('appConfig')
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (parsed.embedding) {
+        if (parsed.embedding.provider) provider = parsed.embedding.provider
+        if (parsed.embedding.model) model = parsed.embedding.model
+        if (parsed.embedding.dimensions) dimensions = parsed.embedding.dimensions
+      }
+    }
+  } catch { /* use defaults */ }
+  return { provider, model, dimensions, backend: 'chroma' }
+}
+
 const DEFAULT_README = `# 知识库 README
 
 ## 主题
@@ -108,14 +131,33 @@ export function knowledgeBaseRoutes(storage: StorageService, python: PythonBacke
       const chunks = storage.getChunksByDocument(docId)
       const chunkTexts = chunks.map(ch => ch.content)
       storage.updateDocumentLifecycle(docId, 'indexing')
-      let embeddingConfig: Record<string, unknown> | undefined
-      try {
-        const raw = storage.getConfig('appConfig')
-        if (raw) embeddingConfig = JSON.parse(raw).embedding || undefined
-      } catch { /* ignore */ }
+
+      const embInfo = getEmbeddingInfo(storage)
+      const collectionName = buildCollectionName(embInfo.provider, embInfo.model, embInfo.dimensions)
+      const indexId = randomUUID()
+
+      storage.upsertDocumentVectorIndex({
+        id: indexId,
+        documentId: docId,
+        knowledgeBaseId: kbId,
+        backend: embInfo.backend,
+        collectionName,
+        embeddingProvider: embInfo.provider,
+        embeddingModel: embInfo.model,
+        embeddingDimensions: embInfo.dimensions,
+        chunkCount: chunks.length,
+        indexVersion: 1,
+        status: 'indexing',
+      })
+
       python.post('/api/knowledge/documents/gateway', {
         doc_id: docId,
         knowledge_base_id: kbId,
+        index_id: indexId,
+        collection_name: collectionName,
+        embedding_provider: embInfo.provider,
+        embedding_model: embInfo.model,
+        embedding_dimensions: embInfo.dimensions,
         file_name: doc.file_name,
         file_path: doc.file_path,
         chunks: chunkTexts,
@@ -127,14 +169,13 @@ export function knowledgeBaseRoutes(storage: StorageService, python: PythonBacke
           todo_list: doc.todo_list ?? '',
         },
         tags: doc.tags ? doc.tags.split(',').map(t => t.trim()).filter(Boolean) : [],
-        embedding_config: embeddingConfig,
       }).then(() => {
         storage.updateDocumentLifecycle(docId, 'indexed')
-        storage.updateDocumentIndexStatus(docId, 'indexed', null, kbId)
+        storage.markVectorIndexStatus(indexId, 'indexed')
       }).catch((err: unknown) => {
         const errorMsg = err instanceof Error ? err.message : String(err)
         storage.updateDocumentLifecycle(docId, 'index_failed')
-        storage.updateDocumentIndexStatus(docId, 'index_failed', errorMsg, kbId)
+        storage.markVectorIndexStatus(indexId, 'failed', errorMsg)
       })
 
       // Generate README suggestions in background (fire-and-forget)
@@ -226,16 +267,42 @@ export function knowledgeBaseRoutes(storage: StorageService, python: PythonBacke
     const chunks = storage.getChunksByDocument(docId)
     const chunkTexts = chunks.map(ch => ch.content)
 
+    // Mark old indexes as stale
+    storage.markDocumentIndexesStale(docId)
+
+    // Determine next index version
+    const existingIndexes = storage.getVectorIndexesForDocument(docId)
+    const maxVersion = existingIndexes.reduce((max, idx) => Math.max(max, idx.index_version), 0)
+    const newVersion = maxVersion + 1
+
+    const embInfo = getEmbeddingInfo(storage)
+    const collectionName = buildCollectionName(embInfo.provider, embInfo.model, embInfo.dimensions)
+    const indexId = randomUUID()
+
+    storage.upsertDocumentVectorIndex({
+      id: indexId,
+      documentId: docId,
+      knowledgeBaseId: kbId,
+      backend: embInfo.backend,
+      collectionName,
+      embeddingProvider: embInfo.provider,
+      embeddingModel: embInfo.model,
+      embeddingDimensions: embInfo.dimensions,
+      chunkCount: chunks.length,
+      indexVersion: newVersion,
+      status: 'indexing',
+    })
+
     storage.updateDocumentLifecycle(docId, 'indexing')
-    let embeddingConfig: Record<string, unknown> | undefined
-    try {
-      const raw = storage.getConfig('appConfig')
-      if (raw) embeddingConfig = JSON.parse(raw).embedding || undefined
-    } catch { /* ignore */ }
     try {
       await python.post('/api/knowledge/documents/gateway', {
         doc_id: docId,
         knowledge_base_id: kbId,
+        index_id: indexId,
+        collection_name: collectionName,
+        embedding_provider: embInfo.provider,
+        embedding_model: embInfo.model,
+        embedding_dimensions: embInfo.dimensions,
         file_name: doc.file_name,
         file_path: doc.file_path,
         chunks: chunkTexts,
@@ -247,15 +314,14 @@ export function knowledgeBaseRoutes(storage: StorageService, python: PythonBacke
           todo_list: doc.todo_list ?? '',
         },
         tags: doc.tags ? doc.tags.split(',').map(t => t.trim()).filter(Boolean) : [],
-        embedding_config: embeddingConfig,
       })
       storage.updateDocumentLifecycle(docId, 'indexed')
-      storage.updateDocumentIndexStatus(docId, 'indexed', null, kbId)
+      storage.markVectorIndexStatus(indexId, 'indexed')
       return c.json({ success: true })
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err)
       storage.updateDocumentLifecycle(docId, 'index_failed')
-      storage.updateDocumentIndexStatus(docId, 'index_failed', errorMsg, kbId)
+      storage.markVectorIndexStatus(indexId, 'failed', errorMsg)
       return c.json({ error: errorMsg }, 500)
     }
   })

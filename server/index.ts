@@ -40,7 +40,26 @@ app.get('/api/documents/:id', (c) => {
   const doc = storage.getDocument(c.req.param('id'))
   if (!doc) return c.json({ error: '文档不存在' }, 404)
   const history = storage.getLatestHistoryByDocumentId(doc.id)
-  return c.json({ ...doc, analysisResult: history?.result ?? null })
+
+  // Aggregate legacy index fields from vector ledger
+  const indexes = storage.getVectorIndexesForDocument(doc.id)
+  let indexStatus = 'not_indexed'
+  let indexError: string | null = null
+  if (indexes.length > 0) {
+    const failed = indexes.find(i => i.status === 'failed')
+    const indexing = indexes.find(i => i.status === 'indexing')
+    const indexed = indexes.find(i => i.status === 'indexed')
+    if (failed) {
+      indexStatus = 'failed'
+      indexError = failed.error
+    } else if (indexing) {
+      indexStatus = 'indexing'
+    } else if (indexed) {
+      indexStatus = 'indexed'
+    }
+  }
+
+  return c.json({ ...doc, analysisResult: history?.result ?? null, index_status: indexStatus, index_error: indexError })
 })
 
 app.get('/api/health', (c) => c.json({ status: 'ok' }))

@@ -25,7 +25,10 @@ function createSmokeApp() {
     setConfig: vi.fn(),
     getConfig: vi.fn((key: string) => {
       if (key === 'globalProfile') return 'RAG researcher'
-      if (key === 'appConfig') return JSON.stringify({ chat: { provider: 'test' } })
+      if (key === 'appConfig') return JSON.stringify({
+        chat: { provider: 'test' },
+        embedding: { provider: 'openai_compatible', model: 'text-embedding-3-small', dimensions: 1536 },
+      })
       return undefined
     }),
 
@@ -94,6 +97,12 @@ function createSmokeApp() {
     // Lifecycle
     updateDocumentLifecycle: vi.fn(),
     updateDocumentIndexStatus: vi.fn(),
+
+    // Vector ledger
+    upsertDocumentVectorIndex: vi.fn(),
+    getVectorIndexesForDocument: vi.fn(() => []),
+    markVectorIndexStatus: vi.fn(),
+    markDocumentIndexesStale: vi.fn(),
   }
 
   const python = {
