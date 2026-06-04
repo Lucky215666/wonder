@@ -302,16 +302,16 @@ export class StorageService {
     backend?: string; collectionName?: string;
     embeddingProvider?: string | null; embeddingModel?: string | null;
     embeddingDimensions?: number | null; chunkCount?: number;
-    indexVersion?: number; status?: string;
+    indexVersion?: number; status?: string; error?: string | null;
   }) {
     this.db.prepare(`
       INSERT INTO document_vector_indexes
         (id, document_id, knowledge_base_id, backend, collection_name,
          embedding_provider, embedding_model, embedding_dimensions,
-         chunk_count, index_version, status)
+         chunk_count, index_version, status, error)
       VALUES (@id, @documentId, @knowledgeBaseId, @backend, @collectionName,
               @embeddingProvider, @embeddingModel, @embeddingDimensions,
-              @chunkCount, @indexVersion, @status)
+              @chunkCount, @indexVersion, @status, @error)
       ON CONFLICT(id) DO UPDATE SET
         document_id=excluded.document_id, knowledge_base_id=excluded.knowledge_base_id,
         backend=excluded.backend, collection_name=excluded.collection_name,
@@ -319,7 +319,7 @@ export class StorageService {
         embedding_model=COALESCE(excluded.embedding_model, embedding_model),
         embedding_dimensions=COALESCE(excluded.embedding_dimensions, embedding_dimensions),
         chunk_count=excluded.chunk_count, index_version=excluded.index_version,
-        status=excluded.status, updated_at=datetime('now')
+        status=excluded.status, error=excluded.error, updated_at=datetime('now')
     `).run({
       id: index.id,
       documentId: index.documentId,
@@ -332,6 +332,7 @@ export class StorageService {
       chunkCount: index.chunkCount ?? 0,
       indexVersion: index.indexVersion ?? 1,
       status: index.status ?? 'not_indexed',
+      error: index.error ?? null,
     })
   }
 
