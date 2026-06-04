@@ -218,3 +218,38 @@ class HealthCheckResponse(BaseModel):
     status: str
     provider: str
     message: str = ""
+
+
+class ResearchCardSourceRef(BaseModel):
+    item_type: Optional[str] = None
+    card_id: Optional[str] = None
+    doc_id: Optional[str] = None
+    document_id: Optional[str] = None
+    file_name: Optional[str] = ""
+    chunk_id: Optional[str] = None
+    chunk_index: Optional[int] = None
+    chunk_type: Literal["summary", "content", "card"] = "content"
+    content: str = ""
+    snippet: Optional[str] = None
+    score: Optional[float] = None
+
+
+class ResearchCardDraftRequest(BaseModel):
+    question: str
+    answer: str
+    answer_mode: Optional[Literal["general", "rag_enhanced", "mentioned_docs", "compare_docs"]] = None
+    source_refs: List[ResearchCardSourceRef] = []
+    knowledge_base_id: Optional[str] = None
+
+
+class ResearchCardDraftResponse(BaseModel):
+    question: str
+    core_claims: List[str]
+    knowledge_type: Literal["method", "theory", "finding", "research_question", "gap", "limitation", "writing_material", "other"]
+    tags: List[str] = []
+    sub_direction: str = ""
+    validation_notes: str = ""
+    use_cases: List[str] = []
+    linked_doc_ids: List[str] = []
+    no_paper_evidence: bool = False
+    evidence_refs: List[ResearchCardSourceRef] = []
