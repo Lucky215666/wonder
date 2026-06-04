@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { api } from '../services/api'
+import type { ResearchCardDraft } from '../types/research-card'
 
 type AnswerMode = 'general' | 'rag_enhanced' | 'mentioned_docs' | 'compare_docs'
 
@@ -67,6 +68,8 @@ interface QAState {
   openSession: (id: string) => Promise<void>
   deleteSession: (id: string) => Promise<void>
   sendMessage: (question: string, mentionedDocIds?: string[]) => Promise<void>
+  draftResearchCard: (messageId: string, knowledgeBaseId?: string | null) => Promise<ResearchCardDraft>
+  saveResearchCard: (draft: ResearchCardDraft & { knowledgeBaseId: string }) => Promise<void>
   clear: () => void
 }
 
@@ -221,6 +224,31 @@ export const useQAStore = create<QAState>((set, get) => ({
       // Keep mentions on failure (don't clear)
       throw new Error(errorMsg)
     }
+  },
+
+  draftResearchCard: async (messageId, knowledgeBaseId) => {
+    const { sessionId } = get()
+    if (!sessionId) throw new Error('No QA session selected')
+    const body = knowledgeBaseId ? { sessionId, messageId, knowledgeBaseId } : { sessionId, messageId }
+    const raw = await api.post<any>('/api/research-cards/draft-from-qa', body)
+    return {
+      question: raw.question,
+      coreClaims: raw.coreClaims ?? raw.core_claims ?? [],
+      knowledgeType: raw.knowledgeType ?? raw.knowledge_type ?? 'other',
+      tags: raw.tags ?? [],
+      subDirection: raw.subDirection ?? raw.sub_direction ?? null,
+      validationNotes: raw.validationNotes ?? raw.validation_notes ?? '',
+      useCases: raw.useCases ?? raw.use_cases ?? [],
+      linkedDocIds: raw.linkedDocIds ?? raw.linked_doc_ids ?? [],
+      answerMode: raw.answerMode ?? raw.answer_mode ?? null,
+      sourceMessageId: messageId,
+      noPaperEvidence: Boolean(raw.noPaperEvidence ?? raw.no_paper_evidence),
+      evidenceRefs: raw.evidenceRefs ?? raw.evidence_refs ?? [],
+    }
+  },
+
+  saveResearchCard: async (draft) => {
+    await api.post('/api/research-cards', draft)
   },
 
   clear: () => set({ sessionId: null, sessionScope: { type: 'all', ids: [] }, messages: [], mentionedDocs: [] }),

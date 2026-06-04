@@ -165,4 +165,72 @@ describe('useQAStore', () => {
 
     expect(useQAStore.getState().sessionsError).toBe('not found')
   })
+
+  it('draftResearchCard posts session and message id', async () => {
+    useQAStore.setState({ sessionId: 's1' } as any)
+    mockApi.post.mockResolvedValueOnce({
+      question: 'q',
+      coreClaims: ['claim'],
+      knowledgeType: 'method',
+      tags: ['rag'],
+    })
+
+    await useQAStore.getState().draftResearchCard('m1', 'kb1')
+
+    expect(mockApi.post).toHaveBeenCalledWith('/api/research-cards/draft-from-qa', {
+      sessionId: 's1',
+      messageId: 'm1',
+      knowledgeBaseId: 'kb1',
+    })
+  })
+
+  it('draftResearchCard normalizes snake_case response', async () => {
+    useQAStore.setState({ sessionId: 's1' } as any)
+    mockApi.post.mockResolvedValueOnce({
+      question: 'q',
+      core_claims: ['c1'],
+      knowledge_type: 'theory',
+      tags: [],
+      sub_direction: 'sub',
+      validation_notes: 'note',
+      use_cases: ['uc'],
+      linked_doc_ids: ['d1'],
+      answer_mode: 'rag_enhanced',
+      no_paper_evidence: true,
+      evidence_refs: [{ documentId: 'd1', fileName: 'f.pdf', chunkId: null, chunkIndex: null, chunkType: 'content', snippet: 's', score: 0.9 }],
+    })
+
+    const draft = await useQAStore.getState().draftResearchCard('m1')
+
+    expect(draft.coreClaims).toEqual(['c1'])
+    expect(draft.knowledgeType).toBe('theory')
+    expect(draft.noPaperEvidence).toBe(true)
+    expect(draft.evidenceRefs).toHaveLength(1)
+  })
+
+  it('draftResearchCard throws when no session', async () => {
+    useQAStore.setState({ sessionId: null } as any)
+
+    await expect(useQAStore.getState().draftResearchCard('m1')).rejects.toThrow('No QA session selected')
+  })
+
+  it('saveResearchCard posts reviewed draft', async () => {
+    const draft = {
+      knowledgeBaseId: 'kb1',
+      question: 'q',
+      coreClaims: ['claim'],
+      knowledgeType: 'method' as const,
+      tags: ['rag'],
+      subDirection: null,
+      validationNotes: 'verify',
+      useCases: ['review'],
+      linkedDocIds: ['doc1'],
+      noPaperEvidence: false,
+      evidenceRefs: [],
+    }
+
+    await useQAStore.getState().saveResearchCard(draft)
+
+    expect(mockApi.post).toHaveBeenCalledWith('/api/research-cards', draft)
+  })
 })

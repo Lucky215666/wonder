@@ -1,5 +1,5 @@
-import { UserOutlined, RobotOutlined, FileTextOutlined } from '@ant-design/icons'
-import { Tag } from 'antd'
+import { UserOutlined, RobotOutlined, FileTextOutlined, SaveOutlined } from '@ant-design/icons'
+import { Tag, Button } from 'antd'
 
 interface SourceRef {
   doc_id: string
@@ -25,6 +25,7 @@ interface Props {
   content: string
   avatar?: string
   sources?: QASources
+  onSaveResearchCard?: () => void
 }
 
 const ANSWER_MODE_LABELS: Record<AnswerMode, { label: string; color: string }> = {
@@ -34,7 +35,7 @@ const ANSWER_MODE_LABELS: Record<AnswerMode, { label: string; color: string }> =
   compare_docs: { label: '文档对比', color: 'purple' },
 }
 
-export default function ChatMessage({ role, content, avatar, sources }: Props) {
+export default function ChatMessage({ role, content, avatar, sources, onSaveResearchCard }: Props) {
   const isUser = role === 'user'
 
   const avatarEl = isUser ? (
@@ -105,6 +106,13 @@ export default function ChatMessage({ role, content, avatar, sources }: Props) {
                 </div>
               </div>
             )}
+          </div>
+        )}
+        {!isUser && onSaveResearchCard && (
+          <div style={{ marginTop: 6 }}>
+            <Button type="link" size="small" icon={<SaveOutlined />} onClick={onSaveResearchCard}>
+              沉淀为卡片
+            </Button>
           </div>
         )}
       </div>
