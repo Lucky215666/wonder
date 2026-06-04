@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import { api } from '../services/api'
 
+type AnswerMode = 'general' | 'rag_enhanced' | 'mentioned_docs' | 'compare_docs'
+
 interface QASources {
   docIds: string[]
   chunks: string[]
@@ -9,11 +11,11 @@ interface QASources {
     file_name: string
     chunk_id?: string | null
     chunk_index?: number | null
-    chunk_type: string
+    chunk_type: 'summary' | 'content'
     content: string
     score?: number | null
   }>
-  answerMode?: string
+  answerMode?: AnswerMode
 }
 
 interface QAMessage {

@@ -531,6 +531,41 @@ describe('qaRoutes', () => {
     expect(body.assistantMessage.sources.answerMode).toBe('cite')
   })
 
+  // ── Legacy Python response compatibility ────────────────────────────
+
+  it('handles legacy Python response without answer_mode and source_refs', async () => {
+    const storage = createMockStorage({
+      getQASession: vi.fn(() => ({
+        id: 's1', title: 'Test', scope_type: 'all', scope_ids: '[]',
+        created_at: '2024-01-01', updated_at: '2024-01-01',
+      })),
+      getQAMessagesBySessionId: vi.fn(() => []),
+    })
+    const python = createMockPython({
+      post: vi.fn(async () => ({
+        answer: 'answer',
+        source_doc_ids: ['doc-1'],
+        source_chunks: ['chunk'],
+        // No answer_mode or source_refs — legacy Python response
+      })),
+    })
+    const app = new Hono()
+    app.route('/api/qa', qaRoutes(storage as any, python as any))
+
+    const res = await app.request('/api/qa/sessions/s1/messages', {
+      method: 'POST',
+      body: JSON.stringify({ question: 'test' }),
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.assistantMessage.sources.docIds).toEqual(['doc-1'])
+    expect(body.assistantMessage.sources.chunks).toEqual(['chunk'])
+    expect(body.assistantMessage.sources.answerMode).toBeUndefined()
+    expect(body.assistantMessage.sources.refs).toBeUndefined()
+  })
+
   // ── Python failure handling tests ─────────────────────────────────
 
   it('POST /sessions/:id/messages returns 503 when Python backend fails', async () => {

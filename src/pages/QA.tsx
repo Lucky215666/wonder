@@ -1,9 +1,9 @@
-import { useState, useRef, useEffect } from 'react'
-import { Card, Typography, Input, Button, List, Modal, Select, Space, Empty, Popconfirm, Tag, message } from 'antd'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { Card, Typography, Input, Button, List, Modal, Select, Space, Empty, Popconfirm, Tag, message, Spin } from 'antd'
 import {
   SendOutlined, DeleteOutlined, ExperimentOutlined,
   PlusOutlined, MessageOutlined, BookOutlined, FileTextOutlined,
-  GlobalOutlined, LoadingOutlined, RobotOutlined,
+  GlobalOutlined, LoadingOutlined, RobotOutlined, CloseOutlined,
 } from '@ant-design/icons'
 import { useQAStore } from '../stores/qa'
 import { useConfigStore } from '../stores/config'
@@ -23,11 +23,16 @@ export default function QA() {
   const [newTitle, setNewTitle] = useState('')
   const [newScopeType, setNewScopeType] = useState('knowledge_base')
   const [newScopeIds, setNewScopeIds] = useState<string[]>([])
+  const [mentionQuery, setMentionQuery] = useState('')
+  const [showMentionPicker, setShowMentionPicker] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<any>(null)
 
   const {
     sessions, sessionsLoading, sessionId, messages, loading,
+    mentionedDocs, mentionSearchResults, mentionSearchLoading,
     loadSessions, createSession, openSession, deleteSession, sendMessage, clear,
+    searchMentions, addMention, removeMention,
   } = useQAStore()
   const { config } = useConfigStore()
 
@@ -39,13 +44,59 @@ export default function QA() {
     }
   }, [messages])
 
+  // Debounced mention search
+  useEffect(() => {
+    if (!mentionQuery) {
+      setShowMentionPicker(false)
+      return
+    }
+    setShowMentionPicker(true)
+    const timer = setTimeout(() => {
+      searchMentions(mentionQuery)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [mentionQuery, searchMentions])
+
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value
+    setInput(value)
+
+    // Detect @ mention trigger
+    const atIndex = value.lastIndexOf('@')
+    if (atIndex >= 0) {
+      const afterAt = value.slice(atIndex + 1)
+      // Only trigger if there's no space between @ and query (or query is empty)
+      if (!afterAt.includes(' ')) {
+        setMentionQuery(afterAt)
+        return
+      }
+    }
+    setMentionQuery('')
+    setShowMentionPicker(false)
+  }, [])
+
+  const handleSelectMention = useCallback((doc: { id: string; fileName: string }) => {
+    addMention(doc)
+    // Remove @query from input
+    const atIndex = input.lastIndexOf('@')
+    if (atIndex >= 0) {
+      setInput(input.slice(0, atIndex))
+    }
+    setMentionQuery('')
+    setShowMentionPicker(false)
+    inputRef.current?.focus()
+  }, [input, addMention])
+
   const handleSend = async () => {
     if (!input.trim() || !sessionId) return
     const question = input.trim()
+    const mentionedDocIds = mentionedDocs.map(d => d.id)
     setInput('')
     try {
-      await sendMessage(question)
+      await sendMessage(question, mentionedDocIds.length > 0 ? mentionedDocIds : undefined)
+      // mentions cleared by sendMessage on success
     } catch (err) {
+      // mentions preserved on failure
       message.error(err instanceof Error ? err.message : '发送失败，请检查网络或 API 配置')
     }
   }
@@ -194,11 +245,79 @@ export default function QA() {
               </Card>
 
               <Card style={{ padding: '12px 16px' }}>
+                {/* Mention chips */}
+                {mentionedDocs.length > 0 && (
+                  <div style={{ marginBottom: 8, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    {mentionedDocs.map(doc => (
+                      <Tag
+                        key={doc.id}
+                        closable
+                        onClose={() => removeMention(doc.id)}
+                        closeIcon={<CloseOutlined />}
+                        color="blue"
+                      >
+                        {doc.fileName}
+                      </Tag>
+                    ))}
+                  </div>
+                )}
+
+                {/* Mention picker dropdown */}
+                {showMentionPicker && (
+                  <div style={{
+                    position: 'relative',
+                    marginBottom: 8,
+                  }}>
+                    <div style={{
+                      position: 'absolute',
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      zIndex: 10,
+                      background: 'var(--bg-card, #fff)',
+                      border: '1px solid var(--border-light, #d9d9d9)',
+                      borderRadius: 6,
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                      maxHeight: 200,
+                      overflowY: 'auto',
+                    }}>
+                      {mentionSearchLoading ? (
+                        <div style={{ padding: 12, textAlign: 'center' }}>
+                          <Spin size="small" />
+                        </div>
+                      ) : mentionSearchResults.length > 0 ? (
+                        mentionSearchResults.map(doc => (
+                          <div
+                            key={doc.id}
+                            onClick={() => handleSelectMention(doc)}
+                            style={{
+                              padding: '8px 12px',
+                              cursor: 'pointer',
+                              borderBottom: '1px solid var(--border-light, #f0f0f0)',
+                              fontSize: 13,
+                            }}
+                            onMouseEnter={e => (e.currentTarget.style.background = 'var(--accent-ghost, #e6f4ff)')}
+                            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                          >
+                            <FileTextOutlined style={{ marginRight: 8, color: 'var(--ink-ghost)' }} />
+                            {doc.fileName}
+                          </div>
+                        ))
+                      ) : (
+                        <div style={{ padding: 12, textAlign: 'center', color: 'var(--ink-ghost)', fontSize: 13 }}>
+                          未找到匹配的文档
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 <div style={{ display: 'flex', gap: 8 }}>
                   <Input
-                    placeholder="输入问题..."
+                    ref={inputRef}
+                    placeholder="输入问题... (输入 @ 引用文档)"
                     value={input}
-                    onChange={e => setInput(e.target.value)}
+                    onChange={handleInputChange}
                     onPressEnter={handleSend}
                     disabled={loading}
                     size="large"

@@ -453,3 +453,133 @@ def test_retriever_merges_multi_collection_results_by_distance():
 
     assert "doc-b" in result.source_doc_ids
     assert "doc-a" not in result.source_doc_ids
+
+
+# --- Task: source_refs and retrieval_confidence ---
+
+
+class SourceRefStorage:
+    """Fake storage that returns results with rich metadata for source_ref tests."""
+
+    def __init__(self, summary_results=None, chunk_results=None):
+        self._summary_results = summary_results or {
+            "documents": [["summary of paper A"]],
+            "metadatas": [[{
+                "doc_id": "doc-1",
+                "file_name": "paper_a.pdf",
+                "chunk_id": "chunk-s1",
+                "chunk_index": 0,
+            }]],
+            "distances": [[0.2]],
+        }
+        self._chunk_results = chunk_results or {
+            "documents": [["detailed content about X"]],
+            "metadatas": [[{
+                "doc_id": "doc-1",
+                "file_name": "paper_a.pdf",
+                "chunk_id": "chunk-c1",
+                "chunk_index": 3,
+            }]],
+            "distances": [[0.4]],
+        }
+        self.where_filters = []
+
+    def query_collection(self, query_embeddings, n_results, where=None, collection_name=None):
+        self.where_filters.append(where)
+        if where and where.get("chunk_type") == "summary":
+            return self._summary_results
+        return self._chunk_results
+
+
+class FixedEmbeddingForSourceRef:
+    def embed_single(self, text):
+        return [1.0, 0.0, 0.0]
+
+
+def test_retriever_returns_source_refs_with_metadata_and_scores():
+    storage = SourceRefStorage()
+    retriever = RAGRetriever(storage, FixedEmbeddingForSourceRef())
+
+    result = retriever.retrieve("question")
+
+    assert len(result.source_refs) > 0
+    ref = result.source_refs[0]
+    assert ref["doc_id"] == "doc-1"
+    assert ref["file_name"] == "paper_a.pdf"
+    assert ref["chunk_type"] == "summary"
+    assert ref["content"] == "summary of paper A"
+    assert ref["score"] is not None
+    assert ref["score"] == pytest.approx(1 - 0.2 / 2)  # 0.9
+
+
+def test_retriever_source_refs_include_chunk_metadata():
+    storage = SourceRefStorage()
+    retriever = RAGRetriever(storage, FixedEmbeddingForSourceRef())
+
+    result = retriever.retrieve("question")
+
+    # Should have both summary and content refs
+    summary_refs = [r for r in result.source_refs if r["chunk_type"] == "summary"]
+    content_refs = [r for r in result.source_refs if r["chunk_type"] == "content"]
+
+    assert len(summary_refs) >= 1
+    assert len(content_refs) >= 1
+
+    assert summary_refs[0]["chunk_id"] == "chunk-s1"
+    assert summary_refs[0]["chunk_index"] == 0
+    assert content_refs[0]["chunk_id"] == "chunk-c1"
+    assert content_refs[0]["chunk_index"] == 3
+
+
+def test_retriever_computes_retrieval_confidence():
+    """retrieval_confidence should be the average score of top-k summary results."""
+    storage = SourceRefStorage(
+        summary_results={
+            "documents": [["summary 1", "summary 2"]],
+            "metadatas": [[
+                {"doc_id": "doc-1", "file_name": "a.pdf"},
+                {"doc_id": "doc-2", "file_name": "b.pdf"},
+            ]],
+            "distances": [[0.2, 0.6]],
+        },
+        chunk_results={
+            "documents": [["chunk"]],
+            "metadatas": [[{"doc_id": "doc-1", "file_name": "a.pdf"}]],
+            "distances": [[0.3]],
+        },
+    )
+    retriever = RAGRetriever(storage, FixedEmbeddingForSourceRef())
+
+    result = retriever.retrieve("question")
+
+    # score = 1 - distance/2
+    # score_1 = 1 - 0.2/2 = 0.9, score_2 = 1 - 0.6/2 = 0.7
+    # average = (0.9 + 0.7) / 2 = 0.8
+    assert result.retrieval_confidence == pytest.approx(0.8)
+
+
+def test_retriever_retrieval_confidence_zero_when_no_summaries():
+    storage = SourceRefStorage(
+        summary_results={"documents": [[]], "metadatas": [[]], "distances": [[]]},
+        chunk_results={
+            "documents": [["chunk"]],
+            "metadatas": [[{"doc_id": "doc-1", "file_name": "a.pdf"}]],
+            "distances": [[0.3]],
+        },
+    )
+    retriever = RAGRetriever(storage, FixedEmbeddingForSourceRef())
+
+    result = retriever.retrieve("question")
+    assert result.retrieval_confidence == 0.0
+
+
+def test_strict_doc_ids_scope_filters_correctly():
+    """When doc_ids are passed, they should filter both summary and content queries."""
+    storage = SourceRefStorage()
+    retriever = RAGRetriever(storage, FixedEmbeddingForSourceRef())
+
+    retriever.retrieve("question", doc_ids=["doc-1", "doc-2"])
+
+    # Summary filter should include doc_id $in filter
+    summary_where = storage.where_filters[0]
+    assert {"doc_id": {"$in": ["doc-1", "doc-2"]}} in summary_where["$and"]

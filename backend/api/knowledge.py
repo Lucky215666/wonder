@@ -17,7 +17,7 @@ from backend.agents.todo import TodoAgent
 from backend.agents.qa import QAAgent
 from backend.models.schemas import (
     KnowledgeIndexRequest,
-    KnowledgeQARequest, KnowledgeQAResponse,
+    KnowledgeQARequest, KnowledgeQAResponse, SourceRef,
     ChatConfig, NormalizedEmbeddingConfig,
 )
 
@@ -182,14 +182,23 @@ async def ask_question(request: KnowledgeQARequest):
             global_profile=request.global_profile,
             nickname=request.nickname,
             doc_ids=request.doc_ids,
+            mentioned_doc_ids=request.mentioned_doc_ids,
             top_k_docs=request.top_k_docs,
             top_k_chunks=request.top_k_chunks,
             conversation_history=request.conversation_history,
         )
+        # Build SourceRef list from raw dicts
+        source_refs = None
+        raw_refs = result.get("source_refs")
+        if raw_refs:
+            source_refs = [SourceRef(**ref) for ref in raw_refs]
+
         return KnowledgeQAResponse(
             answer=result["answer"],
             source_doc_ids=result["source_doc_ids"],
-            source_chunks=result["source_chunks"]
+            source_chunks=result["source_chunks"],
+            answer_mode=result.get("answer_mode"),
+            source_refs=source_refs,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

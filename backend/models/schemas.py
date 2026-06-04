@@ -118,16 +118,30 @@ class KnowledgeQARequest(BaseModel):
     global_profile: str = ""
     nickname: str = ""
     doc_ids: Optional[List[str]] = None
+    mentioned_doc_ids: Optional[List[str]] = None
     top_k_docs: int = 3
     top_k_chunks: int = 5
     conversation_history: Optional[List[dict]] = None
     chat_config: Optional[ChatConfig] = None
     embedding_config: Optional[NormalizedEmbeddingConfig] = None
 
+
+class SourceRef(BaseModel):
+    doc_id: str
+    file_name: str
+    chunk_id: Optional[str] = None
+    chunk_index: Optional[int] = None
+    chunk_type: Literal["summary", "content"] = "content"
+    content: str
+    score: Optional[float] = None
+
+
 class KnowledgeQAResponse(BaseModel):
     answer: str
     source_doc_ids: List[str]
     source_chunks: List[str]
+    answer_mode: Optional[Literal["general", "rag_enhanced", "mentioned_docs", "compare_docs"]] = None
+    source_refs: Optional[List[SourceRef]] = None
 
 class SearchRequest(BaseModel):
     query: str

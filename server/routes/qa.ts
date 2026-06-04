@@ -13,7 +13,7 @@ interface PythonQAResponse {
     file_name: string
     chunk_id?: string | null
     chunk_index?: number | null
-    chunk_type: string
+    chunk_type: 'summary' | 'content'
     content: string
     score?: number | null
   }>

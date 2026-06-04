@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Literal
 from .base import BaseAgent
 
 
@@ -12,6 +12,25 @@ Requirements:
 4. Output in Chinese.
 """
 
+    MODE_PROMPTS: Dict[str, str] = {
+        "general": (
+            "Answer as a general research assistant. "
+            "Do not cite knowledge base sources."
+        ),
+        "rag_enhanced": (
+            "Prioritize retrieved chunks. "
+            "Qualify unsupported claims."
+        ),
+        "mentioned_docs": (
+            "Only discuss the mentioned paper as evidence. "
+            "If evidence is insufficient, say so briefly."
+        ),
+        "compare_docs": (
+            "Use structured comparison: common points, differences, research implications. "
+            "Each paper max 2 key cited points."
+        ),
+    }
+
     def run(
         self,
         document_context: str,
@@ -19,11 +38,15 @@ Requirements:
         question: str,
         conversation_history: Optional[List[Dict[str, str]]] = None,
         user_name: str = "",
+        answer_mode: Optional[str] = None,
+        max_answer_tokens: int = 1800,
+        max_context_chars: int = 10000,
     ) -> str:
-        max_context_chars = 10000
         context = document_context[:max_context_chars]
 
         system_prompt = self.SYSTEM_PROMPT
+        if answer_mode and answer_mode in self.MODE_PROMPTS:
+            system_prompt += f"\nMode: {self.MODE_PROMPTS[answer_mode]}"
         if user_name:
             system_prompt += f"\nThe user's name is {user_name}. Address them by name when appropriate."
 
@@ -53,5 +76,5 @@ Answer the user's question. When necessary, indicate which type of information f
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=0.2,
-            max_tokens=2500,
+            max_tokens=max_answer_tokens,
         )

@@ -61,6 +61,46 @@ describe('useQAStore', () => {
     )
   })
 
+  it('sendMessage posts mentionedDocIds when provided', async () => {
+    useQAStore.setState({
+      sessionId: 's1',
+      messages: [],
+      loading: false,
+    })
+    mockApi.post.mockResolvedValueOnce({
+      userMessage: { id: 'u1', role: 'user', content: 'q' },
+      assistantMessage: { id: 'a1', role: 'assistant', content: 'a' },
+    })
+
+    await useQAStore.getState().sendMessage('q', ['doc-1'])
+
+    expect(mockApi.post).toHaveBeenCalledWith(
+      '/api/qa/sessions/s1/messages',
+      { question: 'q', mentionedDocIds: ['doc-1'] },
+      expect.any(AbortSignal),
+    )
+  })
+
+  it('sendMessage posts legacy payload without mentionedDocIds', async () => {
+    useQAStore.setState({
+      sessionId: 's1',
+      messages: [],
+      loading: false,
+    })
+    mockApi.post.mockResolvedValueOnce({
+      userMessage: { id: 'u1', role: 'user', content: 'q' },
+      assistantMessage: { id: 'a1', role: 'assistant', content: 'a' },
+    })
+
+    await useQAStore.getState().sendMessage('q')
+
+    expect(mockApi.post).toHaveBeenCalledWith(
+      '/api/qa/sessions/s1/messages',
+      { question: 'q' },
+      expect.any(AbortSignal),
+    )
+  })
+
   it('sendMessage handles timeout error', async () => {
     useQAStore.setState({
       sessionId: 's1',
@@ -89,6 +129,33 @@ describe('useQAStore', () => {
     await expect(useQAStore.getState().deleteSession('bad-id')).rejects.toThrow('not found')
 
     expect(useQAStore.getState().sessionsError).toBe('not found')
+  })
+
+  it('openSession parses legacy sources without refs', async () => {
+    mockApi.get.mockResolvedValueOnce({
+      id: 's1',
+      title: 'Test',
+      scope_type: 'all',
+      scope_ids: '[]',
+      updated_at: '2024-01-01',
+      messages: [
+        {
+          id: 'm1',
+          role: 'assistant',
+          content: 'answer',
+          sources: '{"docIds":["doc-1"],"chunks":["chunk"]}',
+        },
+      ],
+    })
+
+    await useQAStore.getState().openSession('s1')
+
+    const messages = useQAStore.getState().messages
+    expect(messages).toHaveLength(1)
+    expect(messages[0].sources?.docIds).toEqual(['doc-1'])
+    expect(messages[0].sources?.chunks).toEqual(['chunk'])
+    expect(messages[0].sources?.refs).toBeUndefined()
+    expect(messages[0].sources?.answerMode).toBeUndefined()
   })
 
   it('openSession sets error and rethrows on failure', async () => {

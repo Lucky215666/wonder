@@ -10,6 +10,12 @@ class RetrievalResult:
     chunks: List[str]
     context: str
     source_doc_ids: List[str]
+    source_refs: List[dict] = None
+    retrieval_confidence: float = 0.0
+
+    def __post_init__(self):
+        if self.source_refs is None:
+            self.source_refs = []
 
 
 class RAGRetriever:
@@ -146,12 +152,65 @@ class RAGRetriever:
 
         context = self._build_context(summaries_result, chunks_result, max_context_tokens)
 
+        # Build structured source_refs
+        source_refs = self._build_source_refs(summaries_result, chunks_result)
+
+        # Compute retrieval_confidence as average score of summary refs
+        summary_scores = [
+            ref["score"] for ref in source_refs
+            if ref["chunk_type"] == "summary" and ref.get("score") is not None
+        ]
+        retrieval_confidence = sum(summary_scores) / len(summary_scores) if summary_scores else 0.0
+
         return RetrievalResult(
             summaries=summaries_result.get("documents", [[]])[0] if summaries_result.get("documents") else [],
             chunks=chunks_result.get("documents", [[]])[0] if chunks_result.get("documents") else [],
             context=context,
             source_doc_ids=matched_doc_ids,
+            source_refs=source_refs,
+            retrieval_confidence=retrieval_confidence,
         )
+
+    @staticmethod
+    def _build_source_refs(summaries: Dict, chunks: Dict) -> List[dict]:
+        """Build structured source_refs from retrieval results."""
+        refs: List[dict] = []
+
+        summary_docs = summaries.get("documents", [[]])[0] if summaries.get("documents") else []
+        summary_metas = summaries.get("metadatas", [[]])[0] if summaries.get("metadatas") else []
+        summary_dists = summaries.get("distances", [[]])[0] if summaries.get("distances") else []
+
+        for i, doc in enumerate(summary_docs):
+            meta = summary_metas[i] if i < len(summary_metas) else {}
+            dist = summary_dists[i] if i < len(summary_dists) else None
+            refs.append({
+                "doc_id": meta.get("doc_id", ""),
+                "file_name": meta.get("file_name", "unknown"),
+                "chunk_id": meta.get("chunk_id"),
+                "chunk_index": meta.get("chunk_index"),
+                "chunk_type": "summary",
+                "content": doc,
+                "score": 1 - dist / 2 if dist is not None else None,
+            })
+
+        chunk_docs = chunks.get("documents", [[]])[0] if chunks.get("documents") else []
+        chunk_metas = chunks.get("metadatas", [[]])[0] if chunks.get("metadatas") else []
+        chunk_dists = chunks.get("distances", [[]])[0] if chunks.get("distances") else []
+
+        for i, doc in enumerate(chunk_docs):
+            meta = chunk_metas[i] if i < len(chunk_metas) else {}
+            dist = chunk_dists[i] if i < len(chunk_dists) else None
+            refs.append({
+                "doc_id": meta.get("doc_id", ""),
+                "file_name": meta.get("file_name", "unknown"),
+                "chunk_id": meta.get("chunk_id"),
+                "chunk_index": meta.get("chunk_index"),
+                "chunk_type": "content",
+                "content": doc,
+                "score": 1 - dist / 2 if dist is not None else None,
+            })
+
+        return refs
 
     def _build_context(self, summaries: Dict, chunks: Dict,
                        max_tokens: int) -> str:

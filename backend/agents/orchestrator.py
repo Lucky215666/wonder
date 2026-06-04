@@ -8,6 +8,7 @@ from backend.agents.relation import ProjectRelationAgent
 from backend.agents.writing import WritingAgent
 from backend.agents.todo import TodoAgent
 from backend.agents.qa import QAAgent
+from backend.agents.qa_policy import build_initial_policy, finalize_policy_after_retrieval
 from backend.rag.retriever import RAGRetriever
 
 class TaskType(str, Enum):
@@ -195,39 +196,66 @@ class Orchestrator:
                       knowledge_base_readme: str = "", global_profile: str = "",
                       nickname: str = "",
                       doc_ids: Optional[List[str]] = None,
+                      mentioned_doc_ids: Optional[List[str]] = None,
                       conversation_history: Optional[List[Dict]] = None,
                       top_k_docs: int = 3, top_k_chunks: int = 5) -> Dict[str, Any]:
         if not self.retriever:
             raise ValueError("RAG retriever not configured")
 
-        retrieval = self.retriever.retrieve(
-            query=question,
+        # --- Phase 1: Build initial policy from mention state ---
+        policy = build_initial_policy(
             knowledge_base_id=knowledge_base_id,
             doc_ids=doc_ids,
+            mentioned_doc_ids=mentioned_doc_ids,
             top_k_docs=top_k_docs,
             top_k_chunks=top_k_chunks,
         )
 
+        # --- Phase 2: Retrieve using policy scope ---
+        retrieval = self.retriever.retrieve(
+            query=question,
+            knowledge_base_id=policy.retrieval_scope.knowledge_base_id,
+            doc_ids=policy.retrieval_scope.doc_ids,
+            top_k_docs=policy.limits.top_k_docs,
+            top_k_chunks=policy.limits.top_k_chunks,
+        )
+
+        # --- Phase 3: Finalize policy based on retrieval quality ---
+        has_reliable = any(
+            (ref.get("score") or 0) >= 0.25 for ref in retrieval.source_refs
+        )
+        policy = finalize_policy_after_retrieval(policy, has_reliable_sources=has_reliable)
+
+        # --- Phase 4: Build context ---
         context_parts = []
         if global_profile.strip():
             context_parts.append(f"[Global Profile]\n{global_profile}")
         if knowledge_base_readme.strip():
             context_parts.append(f"[Knowledge Base README]\n{knowledge_base_readme}")
-        context_parts.append(retrieval.context)
+        # For general mode without reliable sources, skip retrieval context
+        if policy.answer_mode != "general" or has_reliable:
+            if retrieval.context:
+                context_parts.append(retrieval.context)
         document_context = "\n\n---\n\n".join(part for part in context_parts if part)
 
+        # --- Phase 5: Call QA agent with mode and limits ---
         answer = self.agents["qa"].run(
             document_context=document_context,
             analysis_report="",
             question=question,
             conversation_history=conversation_history or [],
             user_name=nickname,
+            answer_mode=policy.answer_mode,
+            max_answer_tokens=policy.limits.max_answer_tokens,
+            max_context_chars=policy.limits.max_context_chars,
         )
 
         return {
             "answer": answer,
             "source_doc_ids": retrieval.source_doc_ids,
             "source_chunks": retrieval.chunks,
+            "answer_mode": policy.answer_mode,
+            "source_refs": retrieval.source_refs,
         }
 
     def _generate_writing(self, reading_card: str, relation_analysis: str,
