@@ -186,8 +186,8 @@ export function researchCardRoutes(storage: StorageService, python: PythonBacken
     const cardId = randomUUID()
     const evidenceRefs = (body.evidenceRefs ?? []).map(normalizeEvidenceRef)
 
-    // Create card and evidence refs in a transaction
-    storage.createResearchCard({
+    // Create card and evidence refs in a single transaction
+    storage.createResearchCardWithRefs({
       id: cardId,
       knowledgeBaseId: body.knowledgeBaseId,
       question: body.question,
@@ -202,11 +202,7 @@ export function researchCardRoutes(storage: StorageService, python: PythonBacken
       sourceMessageId: body.sourceMessageId ?? null,
       status: body.status ?? 'saved',
       noPaperEvidence: body.noPaperEvidence ?? false,
-    })
-
-    if (evidenceRefs.length > 0) {
-      storage.replaceResearchCardEvidenceRefs(cardId, evidenceRefs)
-    }
+    }, evidenceRefs)
 
     // Upsert vector index row with status 'indexing'
     const vectorIndexId = randomUUID()

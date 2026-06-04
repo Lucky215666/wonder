@@ -583,6 +583,45 @@ describe('StorageService', () => {
     expect(storage.getResearchCardEvidenceRefs('card1')).toHaveLength(1)
   })
 
+  it('should create research card with refs in a single transaction', () => {
+    storage.createKnowledgeBase({ id: 'kb1', name: 'KB' })
+    storage.upsertDocument({ id: 'doc1', fileName: 'paper.pdf' })
+
+    storage.createResearchCardWithRefs({
+      id: 'card-tx', knowledgeBaseId: 'kb1', question: 'What is RAG?',
+      coreClaims: JSON.stringify(['claim1']), knowledgeType: 'method',
+      tags: JSON.stringify(['rag']), validationNotes: 'verified',
+      useCases: JSON.stringify(['review']), linkedDocIds: '[]', noPaperEvidence: false,
+    }, [
+      { id: 'ref-a', documentId: 'doc1', fileName: 'paper.pdf', chunkType: 'content', snippet: 'evidence A', score: 0.9 },
+      { id: 'ref-b', documentId: 'doc1', fileName: 'paper.pdf', chunkType: 'content', snippet: 'evidence B', score: 0.8 },
+    ])
+
+    const card = storage.getResearchCard('card-tx')!
+    expect(card).toBeDefined()
+    expect(card.question).toBe('What is RAG?')
+    expect(card.knowledge_type).toBe('method')
+
+    const refs = storage.getResearchCardEvidenceRefs('card-tx')
+    expect(refs).toHaveLength(2)
+    expect(refs[0].snippet).toBe('evidence A')
+    expect(refs[1].snippet).toBe('evidence B')
+  })
+
+  it('should create research card with refs when refs array is empty', () => {
+    storage.createKnowledgeBase({ id: 'kb1', name: 'KB' })
+
+    storage.createResearchCardWithRefs({
+      id: 'card-no-refs', knowledgeBaseId: 'kb1', question: 'q',
+      coreClaims: '[]', knowledgeType: 'method', tags: '[]',
+      validationNotes: '', useCases: '[]', linkedDocIds: '[]', noPaperEvidence: true,
+    }, [])
+
+    const card = storage.getResearchCard('card-no-refs')!
+    expect(card).toBeDefined()
+    expect(storage.getResearchCardEvidenceRefs('card-no-refs')).toHaveLength(0)
+  })
+
   it('should list research cards filtered by knowledge base and status', () => {
     storage.createKnowledgeBase({ id: 'kb1', name: 'KB1' })
     storage.createKnowledgeBase({ id: 'kb2', name: 'KB2' })

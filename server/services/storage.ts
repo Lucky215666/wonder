@@ -931,6 +931,70 @@ export class StorageService {
     })
   }
 
+  createResearchCardWithRefs(card: {
+    id: string; knowledgeBaseId: string; question: string; coreClaims: string;
+    knowledgeType: string; tags: string; subDirection?: string | null;
+    validationNotes: string; useCases: string; linkedDocIds: string;
+    answerMode?: string | null; sourceMessageId?: string | null;
+    status?: string; noPaperEvidence: boolean;
+  }, refs: Array<{
+    id: string; documentId?: string | null; fileName?: string | null;
+    chunkId?: string | null; chunkIndex?: number | null; chunkType?: string;
+    snippet: string; score?: number | null;
+  }>) {
+    const insertCardStmt = this.db.prepare(`
+      INSERT INTO research_cards
+        (id, knowledge_base_id, question, core_claims, knowledge_type, tags,
+         sub_direction, validation_notes, use_cases, linked_doc_ids,
+         answer_mode, source_message_id, status, no_paper_evidence)
+      VALUES (@id, @knowledgeBaseId, @question, @coreClaims, @knowledgeType, @tags,
+              @subDirection, @validationNotes, @useCases, @linkedDocIds,
+              @answerMode, @sourceMessageId, @status, @noPaperEvidence)
+    `)
+    const deleteRefsStmt = this.db.prepare('DELETE FROM research_card_evidence_refs WHERE card_id = ?')
+    const insertRefStmt = this.db.prepare(`
+      INSERT INTO research_card_evidence_refs
+        (id, card_id, document_id, file_name, chunk_id, chunk_index, chunk_type, snippet, score)
+      VALUES (@id, @cardId, @documentId, @fileName, @chunkId, @chunkIndex, @chunkType, @snippet, @score)
+    `)
+
+    const tx = this.db.transaction(() => {
+      insertCardStmt.run({
+        id: card.id,
+        knowledgeBaseId: card.knowledgeBaseId,
+        question: card.question,
+        coreClaims: card.coreClaims,
+        knowledgeType: card.knowledgeType,
+        tags: card.tags,
+        subDirection: card.subDirection ?? null,
+        validationNotes: card.validationNotes,
+        useCases: card.useCases,
+        linkedDocIds: card.linkedDocIds,
+        answerMode: card.answerMode ?? null,
+        sourceMessageId: card.sourceMessageId ?? null,
+        status: card.status ?? 'saved',
+        noPaperEvidence: card.noPaperEvidence ? 1 : 0,
+      })
+
+      deleteRefsStmt.run(card.id)
+
+      for (const ref of refs) {
+        insertRefStmt.run({
+          id: ref.id,
+          cardId: card.id,
+          documentId: ref.documentId ?? null,
+          fileName: ref.fileName ?? null,
+          chunkId: ref.chunkId ?? null,
+          chunkIndex: ref.chunkIndex ?? null,
+          chunkType: ref.chunkType ?? 'content',
+          snippet: ref.snippet,
+          score: ref.score ?? null,
+        })
+      }
+    })
+    tx()
+  }
+
   replaceResearchCardEvidenceRefs(cardId: string, refs: Array<{
     id: string; documentId?: string | null; fileName?: string | null;
     chunkId?: string | null; chunkIndex?: number | null; chunkType?: string;

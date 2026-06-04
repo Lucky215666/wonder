@@ -9,6 +9,7 @@ function createMockStorage(overrides: Record<string, unknown> = {}) {
     getQAMessage: vi.fn(() => undefined),
     getPreviousUserMessage: vi.fn(() => undefined),
     createResearchCard: vi.fn(),
+    createResearchCardWithRefs: vi.fn(),
     replaceResearchCardEvidenceRefs: vi.fn(),
     getResearchCard: vi.fn(() => undefined),
     getResearchCardEvidenceRefs: vi.fn(() => []),
@@ -210,9 +211,8 @@ describe('researchCardRoutes', () => {
     expect(body.evidenceRefs).toHaveLength(1)
     expect(body.evidenceRefs[0].documentId).toBe('doc1')
 
-    // Verify storage calls
-    expect(storage.createResearchCard).toHaveBeenCalledTimes(1)
-    expect(storage.replaceResearchCardEvidenceRefs).toHaveBeenCalledTimes(1)
+    // Verify storage calls — card+refs created in a single transaction
+    expect(storage.createResearchCardWithRefs).toHaveBeenCalledTimes(1)
     expect(storage.upsertResearchCardVectorIndex).toHaveBeenCalledTimes(1)
   })
 
