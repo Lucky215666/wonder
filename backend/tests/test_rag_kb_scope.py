@@ -4,7 +4,7 @@ import tempfile
 
 import pytest
 
-from backend.rag.indexer import DocumentIndexer
+from backend.rag.indexer import DocumentIndexer, build_collection_name
 from backend.rag.retriever import RAGRetriever
 from backend.core.storage import StorageManager
 
@@ -18,17 +18,23 @@ class FakeStorage:
     def __init__(self):
         self.added = None
         self.deleted = None
+        self.deleted_collection_name = None
 
-    def add_to_collection(self, ids, embeddings, metadatas, documents):
+    def add_to_collection(self, ids, embeddings, metadatas, documents, collection_name=None):
         self.added = {
             "ids": ids,
             "embeddings": embeddings,
             "metadatas": metadatas,
             "documents": documents,
+            "collection_name": collection_name,
         }
 
-    def delete_from_collection(self, doc_id, knowledge_base_id=None):
+    def delete_from_collection(self, doc_id, knowledge_base_id=None, collection_name=None):
         self.deleted = (doc_id, knowledge_base_id)
+        self.deleted_collection_name = collection_name
+
+    def get_collection(self, collection_name="documents"):
+        return None
 
 
 def test_indexer_uses_ts_doc_id_and_kb_metadata():
@@ -76,7 +82,7 @@ class FakeQueryStorage:
     def __init__(self):
         self.where_filters = []
 
-    def query_collection(self, query_embeddings, n_results, where=None):
+    def query_collection(self, query_embeddings, n_results, where=None, collection_name=None):
         self.where_filters.append(where)
         if where and where.get("chunk_type") == "summary":
             return {
@@ -243,7 +249,7 @@ def test_deletion_removes_vector_entries(real_chroma_storage):
 
 
 class FailingStorage(FakeStorage):
-    def add_to_collection(self, ids, embeddings, metadatas, documents):
+    def add_to_collection(self, ids, embeddings, metadatas, documents, collection_name=None):
         raise RuntimeError("chroma write failed")
 
 
@@ -300,3 +306,113 @@ def test_delete_document_only_removes_target_kb_vectors(real_chroma_storage):
 
     assert "doc-shared" not in after_a.source_doc_ids
     assert "doc-shared" in after_b.source_doc_ids
+
+
+# --- Task 4: Collection strategy and metadata ---
+
+
+def test_build_collection_name_includes_provider_model_and_dimensions():
+    assert build_collection_name("openai_compatible", "text-embedding-3-small", 1536) == (
+        "documents__openai_compatible__text_embedding_3_small__1536"
+    )
+
+
+def test_build_collection_name_normalizes_special_chars():
+    assert build_collection_name("Custom-Provider", "BAAI/bge-m3", 1024) == (
+        "documents__custom_provider__baai_bge_m3__1024"
+    )
+
+
+def test_indexer_stores_index_id_and_chunk_id_in_metadata():
+    """Metadata must include index_id and chunk_id fields."""
+    storage = FakeStorage()
+    indexer = DocumentIndexer(storage, FakeEmbedding())
+
+    indexer.index_document(
+        doc_id="doc-1",
+        knowledge_base_id="kb-1",
+        file_name="paper.pdf",
+        file_path="/tmp/paper.pdf",
+        chunks=["chunk a"],
+        summary="summary",
+        analysis_result={},
+        index_id="idx-1",
+        embedding_provider="openai_compatible",
+        embedding_model="text-embedding-3-small",
+        embedding_dimensions=1536,
+    )
+
+    metas = storage.added["metadatas"]
+    # Summary entry
+    assert metas[0]["index_id"] == "idx-1"
+    assert metas[0]["chunk_id"].startswith("chunk-")
+    assert metas[0]["embedding_model"] == "text-embedding-3-small"
+    assert metas[0]["embedding_dimensions"] == 1536
+    # Chunk entry
+    assert metas[1]["index_id"] == "idx-1"
+    assert metas[1]["chunk_id"].startswith("chunk-")
+    assert metas[1]["embedding_model"] == "text-embedding-3-small"
+    assert metas[1]["embedding_dimensions"] == 1536
+
+
+def test_indexer_passes_collection_name_to_storage():
+    """When collection_name is given, storage receives it."""
+    storage = FakeStorage()
+    indexer = DocumentIndexer(storage, FakeEmbedding())
+
+    indexer.index_document(
+        doc_id="doc-c",
+        knowledge_base_id="kb-c",
+        file_name="c.txt",
+        file_path="/tmp/c.txt",
+        chunks=["chunk"],
+        summary="summary",
+        analysis_result={},
+        collection_name="documents__openai_compatible__text_embedding_3_small__1536",
+    )
+
+    assert storage.added["collection_name"] == "documents__openai_compatible__text_embedding_3_small__1536"
+
+
+def test_delete_document_passes_collection_name_to_storage():
+    storage = FakeStorage()
+    indexer = DocumentIndexer(storage, FakeEmbedding())
+
+    indexer.delete_document(
+        "doc-1",
+        knowledge_base_id="kb-1",
+        collection_name="documents__openai_compatible__text_embedding_3_small__1536",
+    )
+
+    assert storage.deleted == ("doc-1", "kb-1")
+    assert storage.deleted_collection_name == "documents__openai_compatible__text_embedding_3_small__1536"
+
+
+def test_retriever_queries_multiple_collections():
+    """Retriever should merge results from multiple collections."""
+    class MultiCollectionStorage:
+        def __init__(self):
+            self.queried_collections = []
+
+        def query_collection(self, query_embeddings, n_results, where=None, collection_name=None):
+            self.queried_collections.append(collection_name)
+            return {
+                "documents": [["doc from " + (collection_name or "default")]],
+                "metadatas": [[{"doc_id": "doc-1", "file_name": "f.txt"}]],
+                "distances": [[0.1]],
+            }
+
+    storage = MultiCollectionStorage()
+    retriever = RAGRetriever(storage, FakeQueryEmbedding())
+
+    collections = [
+        "documents__openai_compatible__text_embedding_3_small__1536",
+        "documents__custom_openai_compatible__bge_m3__1024",
+    ]
+    result = retriever.retrieve(
+        "question",
+        collection_names=collections,
+    )
+
+    assert len(storage.queried_collections) == 4  # 2 summary + 2 content queries
+    assert all(c in storage.queried_collections for c in collections)

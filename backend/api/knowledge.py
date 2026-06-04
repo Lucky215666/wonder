@@ -8,7 +8,7 @@ from backend.core.embedding import EmbeddingClient
 from backend.core.storage import StorageManager
 from backend.core.providers.factory import create_chat_provider, create_embedding_provider
 from backend.rag.retriever import RAGRetriever
-from backend.rag.indexer import DocumentIndexer
+from backend.rag.indexer import DocumentIndexer, build_collection_name
 from backend.agents.orchestrator import Orchestrator
 from backend.agents.literature import LiteratureParserAgent
 from backend.agents.relation import ProjectRelationAgent
@@ -137,8 +137,18 @@ async def index_gateway_document(request: KnowledgeIndexRequest):
                 model_name=emb_cfg.model,
                 dimensions=emb_cfg.dimensions,
             )
+            emb_provider_name = emb_cfg.provider
+            emb_model = emb_cfg.model
+            emb_dimensions = emb_cfg.dimensions
         else:
             _, embedding = get_storage_and_embedding()
+            config = config_manager.load_normalized()
+            emb = config.get("embedding", {})
+            emb_provider_name = emb.get("provider", "openai_compatible")
+            emb_model = emb.get("model", "text-embedding-3-small")
+            emb_dimensions = emb.get("dimensions", 1536)
+
+        collection_name = build_collection_name(emb_provider_name, emb_model, emb_dimensions)
         indexer = DocumentIndexer(storage, embedding)
         doc_id = indexer.index_document(
             doc_id=request.doc_id,
@@ -149,6 +159,10 @@ async def index_gateway_document(request: KnowledgeIndexRequest):
             summary=request.summary,
             analysis_result=request.analysis_result,
             tags=request.tags,
+            collection_name=collection_name,
+            embedding_provider=emb_provider_name,
+            embedding_model=emb_model,
+            embedding_dimensions=emb_dimensions,
         )
         return {"doc_id": doc_id, "message": "Document indexed successfully"}
     except Exception as e:
