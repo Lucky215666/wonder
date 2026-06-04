@@ -12,6 +12,7 @@ import { configRoutes } from './routes/config.js'
 import { filesRoutes } from './routes/files.js'
 import { PythonBackendClient } from './services/python-backend.js'
 import { qaRoutes } from './routes/qa.js'
+import { researchCardRoutes } from './routes/research-cards.js'
 import { discoveryRoutes } from './routes/discovery.js'
 import { batchRoutes } from './routes/batch.js'
 import { citationRoutes } from './routes/citation.js'
@@ -32,6 +33,7 @@ app.route('/api/history', historyRoutes(storage))
 app.route('/api/config', configRoutes(storage))
 app.route('/api/files', filesRoutes())
 app.route('/api/qa', qaRoutes(storage, pythonBackend))
+app.route('/api/research-cards', researchCardRoutes(storage, pythonBackend))
 app.route('/api/discovery', discoveryRoutes(storage))
 app.route('/api/citation', citationRoutes(storage))
 app.route('/api/batch', batchRoutes(storage))

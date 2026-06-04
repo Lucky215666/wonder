@@ -15,6 +15,7 @@ export function runMigrations(db: Database.Database): void {
   applyMigration(db, 1, 'split_document_analysis', migrateSplitDocumentAnalysis)
   applyMigration(db, 2, 'create_document_vector_indexes', migrateCreateDocumentVectorIndexes)
   applyMigration(db, 3, 'unify_paper_metadata', migrateUnifyPaperMetadata)
+  applyMigration(db, 4, 'create_research_cards', migrateCreateResearchCards)
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
@@ -319,4 +320,71 @@ function migrateUnifyPaperMetadata(db: Database.Database): void {
   `)
 
   assertForeignKeyCheck(db, '3')
+}
+
+// ── Migration 4: Create research cards ──────────────────────────────────
+
+function migrateCreateResearchCards(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS research_cards (
+      id TEXT PRIMARY KEY,
+      knowledge_base_id TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+      question TEXT NOT NULL,
+      core_claims TEXT NOT NULL DEFAULT '[]',
+      knowledge_type TEXT NOT NULL DEFAULT 'other',
+      tags TEXT NOT NULL DEFAULT '[]',
+      sub_direction TEXT,
+      validation_notes TEXT NOT NULL DEFAULT '',
+      use_cases TEXT NOT NULL DEFAULT '[]',
+      linked_doc_ids TEXT NOT NULL DEFAULT '[]',
+      answer_mode TEXT,
+      source_message_id TEXT REFERENCES qa_messages(id) ON DELETE SET NULL,
+      status TEXT NOT NULL DEFAULT 'saved',
+      no_paper_evidence INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS research_card_evidence_refs (
+      id TEXT PRIMARY KEY,
+      card_id TEXT NOT NULL REFERENCES research_cards(id) ON DELETE CASCADE,
+      document_id TEXT REFERENCES documents(id) ON DELETE SET NULL,
+      file_name TEXT,
+      chunk_id TEXT,
+      chunk_index INTEGER,
+      chunk_type TEXT NOT NULL DEFAULT 'content',
+      snippet TEXT NOT NULL,
+      score REAL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS research_card_vector_indexes (
+      id TEXT PRIMARY KEY,
+      card_id TEXT NOT NULL REFERENCES research_cards(id) ON DELETE CASCADE,
+      knowledge_base_id TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+      backend TEXT NOT NULL DEFAULT 'chroma',
+      collection_name TEXT NOT NULL,
+      embedding_provider TEXT,
+      embedding_model TEXT,
+      embedding_dimensions INTEGER,
+      status TEXT NOT NULL DEFAULT 'not_indexed',
+      error TEXT,
+      indexed_at TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+
+  db.exec('CREATE INDEX IF NOT EXISTS idx_research_cards_kb_status ON research_cards(knowledge_base_id, status)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_research_cards_type ON research_cards(knowledge_type)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_research_card_refs_card ON research_card_evidence_refs(card_id)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_research_card_refs_doc ON research_card_evidence_refs(document_id)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_research_card_vector_indexes_card ON research_card_vector_indexes(card_id)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_research_card_vector_indexes_status ON research_card_vector_indexes(status)')
+
+  assertForeignKeyCheck(db, '4')
 }
