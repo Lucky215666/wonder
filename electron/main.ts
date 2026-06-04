@@ -1,7 +1,8 @@
-import { app, BrowserWindow, ipcMain, screen, dialog } from 'electron'
+﻿import { app, BrowserWindow, ipcMain, screen, dialog } from 'electron'
 import path from 'path'
 import net from 'net'
 import fs from 'fs'
+import { spawn, ChildProcess } from 'child_process'
 
 const gotTheLock = app.requestSingleInstanceLock()
 
@@ -10,7 +11,9 @@ if (!gotTheLock) {
 }
 
 let mainWindow: BrowserWindow | null = null
+let splashWindow: BrowserWindow | null = null
 let serverModule: { closeStorage?: () => void } | null = null
+let pythonProcess: ChildProcess | null = null
 
 const MIN_WINDOW_WIDTH = 900
 const MIN_WINDOW_HEIGHT = 680
@@ -41,12 +44,180 @@ function waitForServer(port: number, timeout = 15000): Promise<void> {
   })
 }
 
+async function waitForHttpHealth(url: string, timeout = 30000): Promise<void> {
+  const start = Date.now()
+  while (Date.now() - start <= timeout) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(1000) })
+      if (res.ok) return
+    } catch {
+      // Python may still be importing heavy modules.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300))
+  }
+  throw new Error(`Timed out waiting for ${url}`)
+}
+
+function getPythonCandidates(): Array<{ command: string; args: string[] }> {
+  const configured = process.env.PYTHON_EXECUTABLE
+  const candidates: Array<{ command: string; args: string[] }> = []
+  if (configured) candidates.push({ command: configured, args: [] })
+  if (process.platform === 'win32') candidates.push({ command: 'py', args: ['-3.13'] })
+  candidates.push({ command: 'python', args: [] }, { command: 'python3', args: [] })
+  return candidates
+}
+
+async function startPythonBackend(port: number): Promise<void> {
+  const backendDir = app.isPackaged
+    ? path.join(process.resourcesPath, 'backend')
+    : path.join(app.getAppPath(), 'backend')
+
+  if (!fs.existsSync(path.join(backendDir, 'main.py'))) {
+    throw new Error(`Python backend not found at ${backendDir}`)
+  }
+
+  const backendParent = path.dirname(backendDir)
+  const userData = app.getPath('userData')
+  const logDir = path.join(userData, 'logs')
+  const dataDir = path.join(userData, 'data')
+  fs.mkdirSync(logDir, { recursive: true })
+  fs.mkdirSync(dataDir, { recursive: true })
+
+  const logPath = path.join(logDir, 'python-core.log')
+  const log = fs.createWriteStream(logPath, { flags: 'a' })
+  const env = {
+    ...process.env,
+    PYTHONPATH: process.env.PYTHONPATH ? `${backendParent}${path.delimiter}${process.env.PYTHONPATH}` : backendParent,
+    NOTE_FORGE_CONFIG_PATH: path.join(dataDir, 'config.json'),
+    NOTE_FORGE_CORS_ORIGINS: '*',
+  }
+
+  let lastError: unknown = null
+  for (const candidate of getPythonCandidates()) {
+    const args = [
+      ...candidate.args,
+      '-m',
+      'uvicorn',
+      'backend.main:app',
+      '--host',
+      '127.0.0.1',
+      '--port',
+      String(port),
+    ]
+
+    const child = spawn(candidate.command, args, {
+      cwd: userData,
+      env,
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+
+    pythonProcess = child
+    log.write(`\n[${new Date().toISOString()}] Starting Python AI Core: ${candidate.command} ${args.join(' ')}\n`)
+    child.stdout?.pipe(log, { end: false })
+    child.stderr?.pipe(log, { end: false })
+
+    try {
+      await Promise.race([
+        waitForHttpHealth(`http://127.0.0.1:${port}/health`),
+        new Promise<void>((_, reject) => {
+          child.once('error', reject)
+          child.once('exit', (code, signal) => reject(new Error(`Python AI Core exited early: code=${code} signal=${signal}`)))
+        }),
+      ])
+      return
+    } catch (err) {
+      lastError = err
+      log.write(`[${new Date().toISOString()}] Python candidate failed: ${err instanceof Error ? err.message : String(err)}\n`)
+      if (!child.killed) child.kill()
+      pythonProcess = null
+    }
+  }
+
+  throw new Error(
+    `Failed to start Python AI Core. Last error: ${lastError instanceof Error ? lastError.message : String(lastError)}. Log: ${logPath}`
+  )
+}
+
+function createSplash(): BrowserWindow {
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize
+  const splashW = 400
+  const splashH = 260
+  const splash = new BrowserWindow({
+    width: splashW,
+    height: splashH,
+    x: Math.round((width - splashW) / 2),
+    y: Math.round((height - splashH) / 2),
+    frame: false,
+    transparent: true,
+    resizable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    webPreferences: {
+      contextIsolation: true,
+      preload: path.join(__dirname, 'splash-preload.js'),
+    },
+  })
+  splash.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(`<!DOCTYPE html>
+<html><head><style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{display:flex;align-items:center;justify-content:center;height:100vh;
+  background:rgba(250,248,243,0.95);border-radius:12px;overflow:hidden;
+  font-family:"Noto Serif SC","Source Han Serif SC","Georgia",serif}
+.wrap{display:flex;flex-direction:column;align-items:center;gap:14px}
+.icon{font-size:48px;color:#5B7F6E;font-weight:700;
+  text-shadow:0 2px 8px rgba(91,127,110,0.2)}
+.title{font-size:18px;font-weight:600;color:#2C2C2C;letter-spacing:0.02em}
+.spinner{width:32px;height:32px;border:3px solid rgba(91,127,110,0.2);
+  border-top-color:#5B7F6E;border-radius:50%;animation:spin 0.8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.stage{font-size:13px;color:#5B7F6E;min-height:18px;text-align:center}
+.hint{font-size:12px;color:#999;margin-top:2px}
+.error-section{display:none;flex-direction:column;align-items:center;gap:12px}
+.error-icon{font-size:28px;color:#D4574E}
+.error-msg{font-size:13px;color:#666;text-align:center;max-width:300px;line-height:1.5}
+.retry-btn{background:#5B7F6E;color:#fff;border:none;border-radius:6px;
+  padding:8px 24px;font-size:13px;cursor:pointer;font-family:inherit}
+.retry-btn:hover{background:#4A6B5A}
+</style>
+<script>
+window.splashAPI.onStage(function(msg) {
+  var el = document.getElementById('stage');
+  if (el) el.textContent = msg;
+});
+window.splashAPI.onError(function(msg) {
+  document.getElementById('normal-section').style.display = 'none';
+  document.getElementById('error-section').style.display = 'flex';
+  document.getElementById('error-msg').textContent = msg;
+});
+</script>
+</head><body><div class="wrap">
+<div class="icon">W</div>
+<div class="title">Wonder</div>
+<div id="normal-section">
+  <div class="spinner"></div>
+  <div class="stage" id="stage">启动中...</div>
+  <div class="hint">正在启动，请稍候</div>
+</div>
+<div class="error-section" id="error-section">
+  <div class="error-icon">✕</div>
+  <div class="error-msg" id="error-msg"></div>
+  <button class="retry-btn" onclick="window.splashAPI.retry()">重试启动</button>
+</div>
+</div></body></html>`))
+  return splash
+}
+
 async function createWindow() {
+  splashWindow = createSplash()
+
   const port = await findFreePort()
+  const pythonPort = await findFreePort()
 
   // Set env vars before loading server module
   process.env.PORT = String(port)
   process.env.DATA_DIR = path.join(app.getPath('userData'), 'data')
+  process.env.PYTHON_BACKEND_URL = `http://127.0.0.1:${pythonPort}`
 
   // Extract static files from asar to userData so serveStatic can read them
   const staticDir = path.join(app.getPath('userData'), 'static')
@@ -61,13 +232,18 @@ async function createWindow() {
     fs.writeFileSync(versionFile, currentVersion)
   }
   process.env.STATIC_DIR = staticDir
+  try {
+    await startPythonBackend(pythonPort)
+  } catch (err) {
+    console.error('Failed to start Python AI Core:', err)
+  }
 
-  // Load server in-process (no child process spawn — avoids system Node dependency)
+  // Load server in-process (no child process spawn 鈥?avoids system Node dependency)
   try {
     serverModule = require(path.join(__dirname, '../dist-server/server/index.js'))
   } catch (err) {
     console.error('Failed to start server:', err)
-    dialog.showErrorBox('Wonder 启动失败', `服务器启动失败:\n${err instanceof Error ? err.message : String(err)}`)
+    dialog.showErrorBox('Wonder 鍚姩澶辫触', `鏈嶅姟鍣ㄥ惎鍔ㄥけ璐?\n${err instanceof Error ? err.message : String(err)}`)
     app.quit()
     return
   }
@@ -76,7 +252,7 @@ async function createWindow() {
     await waitForServer(port)
   } catch (err) {
     console.error('Server did not start in time:', err)
-    dialog.showErrorBox('Wonder 启动失败', `服务器未在规定时间内就绪:\n${err instanceof Error ? err.message : String(err)}`)
+    dialog.showErrorBox('Wonder 鍚姩澶辫触', `鏈嶅姟鍣ㄦ湭鍦ㄨ瀹氭椂闂村唴灏辩华:\n${err instanceof Error ? err.message : String(err)}`)
     app.quit()
     return
   }
@@ -92,6 +268,7 @@ async function createWindow() {
     minHeight: MIN_WINDOW_HEIGHT,
     x: Math.max(0, Math.round((width - winW) / 2)),
     y: Math.max(0, Math.round((height - winH) / 2)),
+    show: false,
     frame: false,
     backgroundColor: '#FAF8F3',
     icon: path.join(__dirname, '../public/icon.ico'),
@@ -108,6 +285,15 @@ async function createWindow() {
     mainWindow.loadURL(`http://127.0.0.1:${port}`)
   }
   mainWindow.on('closed', () => { mainWindow = null })
+
+  // Close splash once the main window has finished loading
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (splashWindow) {
+      splashWindow.close()
+      splashWindow = null
+    }
+    mainWindow?.show()
+  })
 
   mainWindow.on('maximize', () => {
     mainWindow?.webContents.send('window:maximize-change', true)
@@ -133,15 +319,20 @@ app.on('before-quit', () => {
   try {
     serverModule?.closeStorage?.()
   } catch {
-    // Best-effort cleanup — don't block quit on storage close failure
+    // Best-effort cleanup 鈥?don't block quit on storage close failure
+  }
+  if (pythonProcess && !pythonProcess.killed) {
+    pythonProcess.kill()
+    pythonProcess = null
   }
   app.exit(0)
 })
 
-// 窗口控制 IPC
+// 绐楀彛鎺у埗 IPC
 ipcMain.on('window:minimize', () => mainWindow?.minimize())
 ipcMain.on('window:maximize', () => {
   if (mainWindow?.isMaximized()) mainWindow.unmaximize()
   else mainWindow?.maximize()
 })
 ipcMain.on('window:close', () => mainWindow?.close())
+
