@@ -29,7 +29,16 @@ export function filesRoutes() {
         const parser = new PDFParse({ data: buffer })
         const result = await parser.getText()
         text = result.text
+        let pdfTitle = ''
+        try {
+          const info = await parser.getInfo()
+          const raw = info.info?.Title
+          if (typeof raw === 'string' && raw.trim()) {
+            pdfTitle = raw.trim()
+          }
+        } catch { /* metadata extraction is best-effort */ }
         await parser.destroy()
+        return c.json({ text, fileName, pdfTitle })
       } else if (ext === 'docx') {
         const result = await mammoth.extractRawText({ buffer })
         text = result.value

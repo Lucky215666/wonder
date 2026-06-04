@@ -17,14 +17,73 @@ class TaskType(str, Enum):
     GENERATE_WRITING = "generate_writing"
     GENERATE_TODO = "generate_todo"
 
+_TITLE_PATTERN = _re.compile(
+    r'^\s*\*{0,2}'                     # optional leading whitespace + markdown bold open
+    r'(?:Paper\s*Title|论文标题|标题)'   # label: Paper Title / 论文标题 / 标题
+    r'\s*\*{0,2}'                       # optional markdown bold close
+    r'\s*[:：]\s*'                       # colon (Chinese or English)
+    r'(.+)'                             # capture the title (greedy)
+    r'\s*$',                            # trailing whitespace + line end
+    _re.MULTILINE | _re.IGNORECASE,
+)
+
+# Common non-title lines to skip when guessing from raw text
+_SKIP_LINE_PREFIXES = (
+    'abstract', '摘要', 'keywords', '关键词', 'introduction', '引言',
+    'http', 'doi:', 'arxiv', '©', 'copyright',
+    'this paper', 'in this', 'we present', 'we propose', 'our approach',
+    '本文', '在这篇', '摘要：', '摘要:',
+)
+
+
 def _extract_paper_title(reading_card: str) -> Tuple[str, str]:
     """Extract paper title from reading card. Returns (title, cleaned_reading_card)."""
-    match = _re.match(r'^Paper\s*Title:\s*(.+?)\s*\n', reading_card)
+    match = _TITLE_PATTERN.search(reading_card)
     if match:
-        title = match.group(1).strip()
-        cleaned = reading_card[match.end():].lstrip('\n')
+        title = match.group(1).strip().strip('*').strip()
+        # Remove the matched line from the reading card
+        start, end = match.span()
+        cleaned = (reading_card[:start] + reading_card[end:]).lstrip('\n')
         return title, cleaned
     return '', reading_card
+
+
+def _guess_title_from_text(text: str) -> str:
+    """Heuristic: extract a plausible title from the first few lines of raw text."""
+    lines = text.split('\n')[:10]
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        if len(line) < 8 or len(line) > 300:
+            continue
+        # Skip lines that are clearly not titles
+        lower = line.lower()
+        if any(lower.startswith(p) for p in _SKIP_LINE_PREFIXES):
+            continue
+        # Skip lines that are mostly punctuation or numbers
+        alpha_ratio = sum(1 for c in line if c.isalpha() or '一' <= c <= '鿿') / len(line)
+        if alpha_ratio < 0.4:
+            continue
+        return line
+    return ''
+
+
+def _resolve_title(
+    llm_title: str,
+    text_chunks: List[str],
+    pdf_title: str = '',
+) -> str:
+    """Pick the best title from available sources (priority order)."""
+    if llm_title and llm_title != '未知标题':
+        return llm_title
+    if text_chunks:
+        guessed = _guess_title_from_text(text_chunks[0])
+        if guessed:
+            return guessed
+    if pdf_title and pdf_title.strip():
+        return pdf_title.strip()
+    return ''
 
 
 class Orchestrator:
@@ -58,14 +117,16 @@ class Orchestrator:
         return relation
 
     def _analyze_document(self, text_chunks: List[str], research_context: str,
-                          writing_style: str, progress_callback=None) -> Dict[str, Any]:
+                          writing_style: str, progress_callback=None,
+                          pdf_title: str = '') -> Dict[str, Any]:
         """文档分析流程：chunk 并行提取，后续 agent 串行"""
         # 1. 文献解析（chunk 并行提取）
         raw_reading_card = self.agents["literature"].run(
             text_chunks=text_chunks,
             progress_callback=progress_callback
         )
-        paper_title, reading_card = _extract_paper_title(raw_reading_card)
+        llm_title, reading_card = _extract_paper_title(raw_reading_card)
+        paper_title = _resolve_title(llm_title, text_chunks, pdf_title)
 
         # 2. 项目关联
         relation = self.agents["relation"].run(
@@ -126,6 +187,7 @@ class Orchestrator:
         research_context = kwargs.get("research_context", "")
         writing_style = kwargs.get("writing_style", "")
         progress_callback = kwargs.get("progress_callback")
+        pdf_title = kwargs.get("pdf_title", "")
 
         # 1. 文献解析（chunk 并行提取）
         yield {"step": "literature", "status": "running"}
@@ -133,7 +195,8 @@ class Orchestrator:
             text_chunks=text_chunks,
             progress_callback=progress_callback,
         )
-        paper_title, reading_card = _extract_paper_title(raw_reading_card)
+        llm_title, reading_card = _extract_paper_title(raw_reading_card)
+        paper_title = _resolve_title(llm_title, text_chunks, pdf_title)
         yield {"step": "literature", "status": "done", "data": reading_card}
         if paper_title:
             yield {"step": "literature_meta", "data": {"paper_title": paper_title}}

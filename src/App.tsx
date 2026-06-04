@@ -1,8 +1,10 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom'
-import { Layout, Menu, Tooltip } from 'antd'
+import { Layout, Menu, Tooltip, notification } from 'antd'
+import { ArrowUpOutlined } from '@ant-design/icons'
 import { useUIStore } from './stores/ui'
 import { useConfigStore } from './stores/config'
+import { checkForUpdate } from './services/update'
 import {
   HomeOutlined,
   HistoryOutlined,
@@ -62,6 +64,7 @@ declare global {
       maximizeWindow: () => void
       closeWindow: () => void
       onMaximizeChange: (cb: (maximized: boolean) => void) => () => void
+      getAppVersion: () => Promise<string>
       isElectron: boolean
     }
   }
@@ -113,12 +116,54 @@ export default function App() {
   const [collapsed, setCollapsed] = useState(false)
   const { settingsOpen, openSettings, closeSettings } = useUIStore()
   const { loadConfig } = useConfigStore()
+  const [api, contextHolder] = notification.useNotification()
+  const updateCheckDone = useRef(false)
 
   useEffect(() => { loadConfig() }, [loadConfig])
+
+  // 启动时检查更新（仅一次）
+  useEffect(() => {
+    if (updateCheckDone.current) return
+    updateCheckDone.current = true
+
+    const doCheck = async () => {
+      try {
+        let version = '0.0.0'
+        if (window.electronAPI?.getAppVersion) {
+          version = await window.electronAPI.getAppVersion()
+        } else {
+          // Web 模式：从 Vite 注入的版本号获取
+          version = (import.meta as any).env?.VITE_APP_VERSION || '0.0.0'
+        }
+
+        if (version === '0.0.0') return
+
+        const info = await checkForUpdate(version)
+        if (info?.hasUpdate) {
+          api.info({
+            message: '发现新版本',
+            description: `Wonder v${info.latestVersion} 已发布，当前版本 v${info.currentVersion}。`,
+            icon: <ArrowUpOutlined style={{ color: '#5B7F6E' }} />,
+            duration: 10,
+            btn: info.downloadUrl
+              ? <a href={info.downloadUrl} target="_blank" rel="noopener"><span style={{ color: '#5B7F6E' }}>前往下载</span></a>
+              : undefined,
+          })
+        }
+      } catch {
+        // 静默失败，不影响正常启动
+      }
+    }
+
+    // 延迟 5 秒检查，不阻塞启动
+    const timer = setTimeout(doCheck, 5000)
+    return () => clearTimeout(timer)
+  }, [api])
 
   if (location.pathname === '/welcome') {
     return (
       <>
+        {contextHolder}
         <Routes>
           <Route path="/welcome" element={<Welcome />} />
         </Routes>
@@ -135,6 +180,7 @@ export default function App() {
 
   return (
     <Layout className="wonder-app-layout">
+      {contextHolder}
       <TitleBar sidebarVisible={sidebarVisible} onToggleSidebar={toggleSidebar} />
 
       <Layout className="wonder-body-layout">

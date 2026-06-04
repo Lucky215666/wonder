@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Card, Input, Button, Typography, Space, message, Select } from 'antd'
+import { Card, Input, Button, Typography, Space, message, AutoComplete } from 'antd'
 import {
   ApiOutlined,
   KeyOutlined,
@@ -235,9 +235,9 @@ export default function Settings() {
                   }}
                 />
               ) : (
-                <Select
+                <AutoComplete
                   style={{ width: '100%' }}
-                  placeholder="选择模型"
+                  placeholder="选择或输入模型名称"
                   value={(target === 'analysis' ? form.model : form.embeddingModel) || undefined}
                   onChange={value => {
                     if (target === 'analysis') {
@@ -247,7 +247,7 @@ export default function Settings() {
                     }
                   }}
                   options={providers.find(p => p.id === providerId)?.models.map(m => ({ label: m, value: m }))}
-                  showSearch
+                  allowClear
                 />
               )}
             </div>

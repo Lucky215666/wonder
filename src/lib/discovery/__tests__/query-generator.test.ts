@@ -3,91 +3,107 @@ import { extractKeywords, generateSuggestedQueries } from '../query-generator'
 import type { DiscoveryContext } from '../../../types/discovery'
 
 describe('extractKeywords', () => {
-  it('should extract keywords from headings', () => {
+  it('should use KB name as primary keyword', () => {
+    const keywords = extractKeywords('Retrieval Augmented Generation', '', '')
+
+    expect(keywords[0]).toBe('Retrieval Augmented Generation')
+  })
+
+  it('should extract phrases from description', () => {
+    const keywords = extractKeywords(
+      'RAG',
+      'A system for retrieval augmented generation over documents',
+      ''
+    )
+
+    expect(keywords).toContain('RAG')
+    expect(keywords).toContain('A system for retrieval augmented generation over documents')
+  })
+
+  it('should extract heading phrases from readme', () => {
     const readme = `# Research Project
-## Methodology
-### Data Collection
+## Transformer Architecture
+### Data Collection Methods
 We collect data from multiple sources.`
 
-    const keywords = extractKeywords(readme)
+    const keywords = extractKeywords('Test', '', readme)
 
-    expect(keywords).toContain('research')
-    expect(keywords).toContain('project')
-    expect(keywords).toContain('methodology')
-    expect(keywords).toContain('data')
-    expect(keywords).toContain('collection')
+    expect(keywords).toContain('Research Project')
+    expect(keywords).toContain('Transformer Architecture')
+    expect(keywords).toContain('Data Collection Methods')
   })
 
-  it('should extract keywords from bold text', () => {
-    const readme = `This project uses **retrieval augmented generation** and **transformer models**.`
+  it('should filter out generic structural headings', () => {
+    const readme = `## Introduction
+## Methods
+## Results
+## Conclusion
+## Transformer Architecture`
 
-    const keywords = extractKeywords(readme)
+    const keywords = extractKeywords('Test', '', readme)
 
-    expect(keywords).toContain('retrieval')
-    expect(keywords).toContain('augmented')
-    expect(keywords).toContain('generation')
-    expect(keywords).toContain('transformer')
-    expect(keywords).toContain('models')
+    const genericTerms = ['Introduction', 'Methods', 'Results', 'Conclusion']
+    for (const term of genericTerms) {
+      expect(keywords).not.toContain(term)
+    }
+    expect(keywords).toContain('Transformer Architecture')
   })
 
-  it('should extract code terms', () => {
-    const readme = 'Use the \`searchPapers\` function to query the API.'
+  it('should extract bold phrases from readme', () => {
+    const readme = 'This project uses **retrieval augmented generation** and **transformer models**.'
 
-    const keywords = extractKeywords(readme)
+    const keywords = extractKeywords('Test', '', readme)
 
-    expect(keywords).toContain('searchPapers')
+    expect(keywords).toContain('retrieval augmented generation')
+    expect(keywords).toContain('transformer models')
   })
 
-  it('should filter out stopwords', () => {
-    const readme = '# This is the Project Title'
+  it('should prioritize name over readme', () => {
+    const readme = `## Some Heading
+**Some Bold**`
 
-    const keywords = extractKeywords(readme)
+    const keywords = extractKeywords('My Research Topic', '', readme)
 
-    expect(keywords).not.toContain('this')
-    expect(keywords).not.toContain('the')
-    expect(keywords).toContain('project')
-    expect(keywords).toContain('title')
+    expect(keywords[0]).toBe('My Research Topic')
   })
 
-  it('should limit to 20 keywords', () => {
-    const readme = Array.from({ length: 30 }, (_, i) => `## Heading ${i} keyword${i}`).join('\n')
+  it('should limit to 15 keywords', () => {
+    const readme = Array.from({ length: 30 }, (_, i) => `## Heading Phrase ${i}`).join('\n')
 
-    const keywords = extractKeywords(readme)
+    const keywords = extractKeywords('Test', '', readme)
 
-    expect(keywords.length).toBeLessThanOrEqual(20)
+    expect(keywords.length).toBeLessThanOrEqual(15)
   })
 
   it('should deduplicate keywords', () => {
-    const readme = `# Research
-## Research Methods
-**Research** methodology`
+    const readme = `## Research
+**Research**`
 
-    const keywords = extractKeywords(readme)
+    const keywords = extractKeywords('Test', '', readme)
 
-    const researchCount = keywords.filter(k => k === 'research').length
+    const researchCount = keywords.filter(k => k.toLowerCase() === 'research').length
     expect(researchCount).toBe(1)
   })
 })
 
 describe('generateSuggestedQueries', () => {
-  it('should generate core topic query', () => {
+  it('should use name as core topic query', () => {
     const context: DiscoveryContext = {
       mode: 'manual',
       name: 'Retrieval Augmented Generation',
-      keywords: ['retrieval', 'augmented', 'generation'],
+      keywords: ['Retrieval Augmented Generation', 'transformer'],
     }
 
     const queries = generateSuggestedQueries(context)
 
-    expect(queries.length).toBeGreaterThan(0)
-    expect(queries[0]).toContain('retrieval')
+    expect(queries[0]).toBe('Retrieval Augmented Generation')
   })
 
-  it('should generate keyword queries', () => {
+  it('should generate keyword queries from remaining keywords', () => {
     const context: DiscoveryContext = {
       mode: 'manual',
       name: 'NLP',
-      keywords: ['transformer', 'attention', 'bert'],
+      keywords: ['NLP', 'transformer', 'attention', 'bert'],
     }
 
     const queries = generateSuggestedQueries(context)
@@ -101,33 +117,33 @@ describe('generateSuggestedQueries', () => {
     const context: DiscoveryContext = {
       mode: 'manual',
       name: 'NLP',
-      keywords: ['transformer', 'attention', 'bert'],
+      keywords: ['NLP', 'transformer', 'attention', 'bert'],
     }
 
     const queries = generateSuggestedQueries(context)
 
-    const subDirectionQueries = queries.filter(q => q.includes('transformer') && q !== 'transformer')
+    const subDirectionQueries = queries.filter(q => q.includes('NLP') && q !== 'NLP')
     expect(subDirectionQueries.length).toBeGreaterThan(0)
   })
 
-  it('should generate method-focused queries', () => {
+  it('should generate survey query', () => {
     const context: DiscoveryContext = {
       mode: 'manual',
       name: 'NLP',
-      keywords: ['transformer'],
+      keywords: ['NLP', 'transformer'],
     }
 
     const queries = generateSuggestedQueries(context)
 
-    const methodQueries = queries.filter(q => q.includes('method') || q.includes('framework'))
-    expect(methodQueries.length).toBeGreaterThan(0)
+    const surveyQueries = queries.filter(q => q.includes('survey'))
+    expect(surveyQueries.length).toBeGreaterThan(0)
   })
 
   it('should generate recent papers query', () => {
     const context: DiscoveryContext = {
       mode: 'manual',
       name: 'NLP',
-      keywords: ['transformer'],
+      keywords: ['NLP', 'transformer'],
     }
 
     const queries = generateSuggestedQueries(context)
@@ -153,7 +169,7 @@ describe('generateSuggestedQueries', () => {
     const context: DiscoveryContext = {
       mode: 'manual',
       name: 'NLP',
-      keywords: ['transformer', 'attention', 'bert', 'gpt', 'llm'],
+      keywords: ['NLP', 'transformer', 'attention', 'bert', 'gpt', 'llm'],
     }
 
     const queries = generateSuggestedQueries(context)

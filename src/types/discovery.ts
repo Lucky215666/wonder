@@ -2,6 +2,7 @@ export interface DiscoveryContext {
   mode: 'knowledge_base' | 'manual'
   knowledgeBaseId?: string
   name: string
+  description?: string
   readme?: string
   keywords: string[]
 }

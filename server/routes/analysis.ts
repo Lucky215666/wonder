@@ -50,6 +50,66 @@ interface PythonGatewayResponse {
   }
 }
 
+function toPlainString(value: unknown, fallback = ''): string {
+  if (typeof value === 'string') return value
+  if (value == null) return fallback
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return fallback
+  }
+}
+
+function toStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map(item => toPlainString(item).trim())
+    .filter(Boolean)
+}
+
+function toReadmeSuggestions(value: unknown): Array<{ section: string; suggestion: string; reason?: string }> {
+  if (!Array.isArray(value)) return []
+  return value
+    .filter(item => item && typeof item === 'object' && !Array.isArray(item))
+    .map(item => {
+      const raw = item as Record<string, unknown>
+      return {
+        section: toPlainString(raw.section).trim(),
+        suggestion: toPlainString(raw.suggestion).trim(),
+        reason: toPlainString(raw.reason).trim() || undefined,
+      }
+    })
+    .filter(item => item.section || item.suggestion)
+}
+
+function toSuggestedPlacement(value: unknown): { sub_direction: string; tags: string[] } | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const raw = value as Record<string, unknown>
+  const subDirection = toPlainString(raw.sub_direction ?? raw.subDirection).trim()
+  const tags = toStringArray(raw.tags)
+  if (!subDirection && tags.length === 0) return undefined
+  return { sub_direction: subDirection, tags }
+}
+
+function toWritingAssets(value: unknown): PythonGatewayResponse['writing_assets'] | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const raw = value as Record<string, unknown>
+  const assets = {
+    usable_claims: toStringArray(raw.usable_claims ?? raw.usableClaims),
+    method_references: toStringArray(raw.method_references ?? raw.methodReferences),
+    theory_references: toStringArray(raw.theory_references ?? raw.theoryReferences),
+    possible_literature_review_use: toPlainString(raw.possible_literature_review_use ?? raw.possibleLiteratureReviewUse),
+    limitations_or_critique: toPlainString(raw.limitations_or_critique ?? raw.limitationsOrCritique),
+  }
+  const hasContent = assets.usable_claims.length > 0
+    || assets.method_references.length > 0
+    || assets.theory_references.length > 0
+    || assets.possible_literature_review_use
+    || assets.limitations_or_critique
+  return hasContent ? assets : undefined
+}
+
 export function analysisRoutes(storage: StorageService, python: PythonBackendClient) {
   const app = new Hono()
 
@@ -59,9 +119,10 @@ export function analysisRoutes(storage: StorageService, python: PythonBackendCli
       fileType: string
       text: string
       knowledgeBaseId?: string
+      pdfTitle?: string
     }>()
 
-    const { fileName, fileType, text, knowledgeBaseId } = body
+    const { fileName, fileType, text, knowledgeBaseId, pdfTitle } = body
     if (!text) return c.json({ error: '文本内容不能为空' }, 400)
 
     return streamSSE(c, async (stream) => {
@@ -122,6 +183,7 @@ export function analysisRoutes(storage: StorageService, python: PythonBackendCli
           max_chars: 7000,
           overlap: 500,
           chat_config: chatConfig,
+          pdf_title: pdfTitle || '',
         }, abortController.signal)) {
           if (sse.event === 'agent_start') {
             const { step } = JSON.parse(sse.data) as { step: string }
@@ -153,28 +215,32 @@ export function analysisRoutes(storage: StorageService, python: PythonBackendCli
           throw new Error('Python backend did not return analysis result')
         }
 
+        const safeReadingCard = toPlainString(result.reading_card)
+        const safeSummary = extractTopicSummary(safeReadingCard) || toPlainString(result.summary) || toPlainString(result.file_name)
+        const safeRelationAnalysis = toPlainString(result.relation_analysis)
+        const safeWritingMaterials = toPlainString(result.writing_materials)
+        const safeTodoList = toPlainString(result.todo_list)
+        const safeTags = toStringArray(result.tags)
+        const safeReadmeSuggestions = toReadmeSuggestions(result.readme_suggestions)
+        const safeSuggestedPlacement = toSuggestedPlacement(result.suggested_placement)
+        const safeWritingAssets = toWritingAssets(result.writing_assets)
+
         // Step 3: 存储
         await stream.writeSSE({
           event: 'step',
           data: JSON.stringify({ step: 'store', status: 'running', label: '保存结果' }),
         })
 
-        const safeStr = (v: unknown): string | undefined => {
-          if (v == null) return undefined
-          if (typeof v === 'string') return v
-          return JSON.stringify(v)
-        }
-
         storage.upsertDocument({
           id: docId,
           fileName,
           fileType,
-          summary: extractTopicSummary(result.reading_card || '') || result.summary || result.file_name,
-          readingCard: result.reading_card,
-          relationAnalysis: result.relation_analysis,
-          writingMaterials: result.writing_materials,
-          todoList: result.todo_list,
-          tags: Array.isArray(result.tags) ? result.tags.join(',') : undefined,
+          summary: safeSummary,
+          readingCard: safeReadingCard,
+          relationAnalysis: safeRelationAnalysis,
+          writingMaterials: safeWritingMaterials,
+          todoList: safeTodoList,
+          tags: safeTags.length > 0 ? safeTags.join(',') : undefined,
           matchScore: result.fit_score,
         })
 
@@ -191,8 +257,8 @@ export function analysisRoutes(storage: StorageService, python: PythonBackendCli
         }
 
         // Save README suggestions (KB context is used for analysis, but document is NOT auto-added to KB)
-        if (knowledgeBaseId && Array.isArray(result.readme_suggestions)) {
-          for (const sug of result.readme_suggestions) {
+        if (knowledgeBaseId && safeReadmeSuggestions.length > 0) {
+          for (const sug of safeReadmeSuggestions) {
             storage.addReadmeSuggestion({
               id: randomUUID(),
               knowledgeBaseId,
@@ -206,39 +272,38 @@ export function analysisRoutes(storage: StorageService, python: PythonBackendCli
 
         // Save history (dual snake_case + camelCase for backward compat)
         const historyId = randomUUID()
-        const summaryText = extractTopicSummary(result.reading_card || '') || result.summary || result.file_name
         const historyResult: Record<string, unknown> = {
-          summary: summaryText,
-          paper_title: result.paper_title || undefined,
-          paperTitle: result.paper_title || undefined,
-          reading_card: result.reading_card,
-          readingCard: result.reading_card,
+          summary: safeSummary,
+          paper_title: toPlainString(result.paper_title) || undefined,
+          paperTitle: toPlainString(result.paper_title) || undefined,
+          reading_card: safeReadingCard,
+          readingCard: safeReadingCard,
           fit_score: result.fit_score,
           knowledgeBaseFitScore: result.fit_score,
-          fit_reason: result.fit_reason,
-          fitReason: result.fit_reason,
-          relation_type: result.relation_type,
-          relation_analysis: result.relation_analysis,
-          writing_materials: result.writing_materials,
-          todo_list: result.todo_list,
-          recommended_action: result.recommended_action,
-          recommendedAction: result.recommended_action,
-          tags: result.tags,
-          suggested_placement: result.suggested_placement,
-          suggestedPlacement: result.suggested_placement
-            ? { subDirection: result.suggested_placement.sub_direction, tags: result.suggested_placement.tags }
+          fit_reason: toPlainString(result.fit_reason),
+          fitReason: toPlainString(result.fit_reason),
+          relation_type: toPlainString(result.relation_type),
+          relation_analysis: safeRelationAnalysis,
+          writing_materials: safeWritingMaterials,
+          todo_list: safeTodoList,
+          recommended_action: toPlainString(result.recommended_action),
+          recommendedAction: toPlainString(result.recommended_action),
+          tags: safeTags,
+          suggested_placement: safeSuggestedPlacement,
+          suggestedPlacement: safeSuggestedPlacement
+            ? { subDirection: safeSuggestedPlacement.sub_direction, tags: safeSuggestedPlacement.tags }
             : undefined,
-          novelty_for_kb: result.novelty_for_kb,
-          noveltyForKnowledgeBase: result.novelty_for_kb || undefined,
-          readme_suggestions: result.readme_suggestions,
-          readmeUpdateSuggestions: result.readme_suggestions?.length ? result.readme_suggestions : undefined,
-          writing_assets: result.writing_assets,
-          writingAssets: result.writing_assets?.usable_claims?.length ? {
-            usableClaims: result.writing_assets.usable_claims,
-            methodReferences: result.writing_assets.method_references,
-            theoryReferences: result.writing_assets.theory_references,
-            possibleLiteratureReviewUse: result.writing_assets.possible_literature_review_use,
-            limitationsOrCritique: result.writing_assets.limitations_or_critique,
+          novelty_for_kb: toPlainString(result.novelty_for_kb),
+          noveltyForKnowledgeBase: toPlainString(result.novelty_for_kb) || undefined,
+          readme_suggestions: safeReadmeSuggestions,
+          readmeUpdateSuggestions: safeReadmeSuggestions.length ? safeReadmeSuggestions : undefined,
+          writing_assets: safeWritingAssets,
+          writingAssets: safeWritingAssets ? {
+            usableClaims: safeWritingAssets.usable_claims,
+            methodReferences: safeWritingAssets.method_references,
+            theoryReferences: safeWritingAssets.theory_references,
+            possibleLiteratureReviewUse: safeWritingAssets.possible_literature_review_use,
+            limitationsOrCritique: safeWritingAssets.limitations_or_critique,
           } : undefined,
           knowledgeBaseId: knowledgeBaseId || null,
           fileName: fileName,
@@ -258,28 +323,28 @@ export function analysisRoutes(storage: StorageService, python: PythonBackendCli
             knowledgeBaseId: knowledgeBaseId || null,
             historyId,
             result: {
-              summary: extractTopicSummary(result.reading_card || '') || result.summary || result.file_name,
-              paperTitle: result.paper_title || undefined,
-              readingCard: result.reading_card,
+              summary: safeSummary,
+              paperTitle: toPlainString(result.paper_title) || undefined,
+              readingCard: safeReadingCard,
               knowledgeBaseFitScore: result.fit_score,
-              fitReason: result.fit_reason,
-              relationType: result.relation_type,
-              relationAnalysis: result.relation_analysis,
-              writingMaterials: result.writing_materials,
-              todoList: result.todo_list,
-              recommendedAction: result.recommended_action,
-              tags: result.tags,
-              suggestedPlacement: result.suggested_placement
-                ? { subDirection: result.suggested_placement.sub_direction, tags: result.suggested_placement.tags }
+              fitReason: toPlainString(result.fit_reason),
+              relationType: toPlainString(result.relation_type),
+              relationAnalysis: safeRelationAnalysis,
+              writingMaterials: safeWritingMaterials,
+              todoList: safeTodoList,
+              recommendedAction: toPlainString(result.recommended_action),
+              tags: safeTags,
+              suggestedPlacement: safeSuggestedPlacement
+                ? { subDirection: safeSuggestedPlacement.sub_direction, tags: safeSuggestedPlacement.tags }
                 : undefined,
-              noveltyForKnowledgeBase: result.novelty_for_kb || undefined,
-              readmeUpdateSuggestions: result.readme_suggestions?.length ? result.readme_suggestions : undefined,
-              writingAssets: result.writing_assets?.usable_claims?.length ? {
-                usableClaims: result.writing_assets.usable_claims,
-                methodReferences: result.writing_assets.method_references,
-                theoryReferences: result.writing_assets.theory_references,
-                possibleLiteratureReviewUse: result.writing_assets.possible_literature_review_use,
-                limitationsOrCritique: result.writing_assets.limitations_or_critique,
+              noveltyForKnowledgeBase: toPlainString(result.novelty_for_kb) || undefined,
+              readmeUpdateSuggestions: safeReadmeSuggestions.length ? safeReadmeSuggestions : undefined,
+              writingAssets: safeWritingAssets ? {
+                usableClaims: safeWritingAssets.usable_claims,
+                methodReferences: safeWritingAssets.method_references,
+                theoryReferences: safeWritingAssets.theory_references,
+                possibleLiteratureReviewUse: safeWritingAssets.possible_literature_review_use,
+                limitationsOrCritique: safeWritingAssets.limitations_or_critique,
               } : undefined,
             },
           }),

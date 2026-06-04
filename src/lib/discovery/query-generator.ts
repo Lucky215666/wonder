@@ -1,9 +1,5 @@
 import type { DiscoveryContext } from '../../types/discovery'
 
-function normalizeText(text: string): string {
-  return text.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim()
-}
-
 const STOPWORDS = new Set([
   'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
   'of', 'with', 'by', 'from', 'is', 'are', 'was', 'were', 'be', 'been',
@@ -18,73 +14,151 @@ const STOPWORDS = new Set([
   'because', 'as', 'until', 'while', 'what', 'which', 'who', 'whom',
 ])
 
-function extractHeadingKeywords(readme: string): string[] {
+// Generic structural headings that are never research topics
+const GENERIC_HEADINGS = new Set([
+  'introduction', '背景', '引言', 'overview', '概述',
+  'methods', 'method', '方法', 'methodology',
+  'results', 'result', '结果', 'findings', '发现',
+  'discussion', '讨论', 'conclusion', 'conclusions', '结论', '总结',
+  'references', 'reference', '参考文献', 'bibliography',
+  'acknowledgments', 'acknowledgements', '致谢',
+  'appendix', 'appendices', '附录', 'supplementary', '补充材料',
+  'abstract', '摘要', 'keywords', '关键词',
+  'table of contents', '目录', 'readme', 'todo', 'changelog',
+  'installation', '安装', 'usage', '使用', 'getting started', '快速开始',
+  'contributing', '贡献', 'license', '许可证',
+  'related work', '相关工作', 'future work', '未来工作',
+  'experiments', '实验', 'evaluation', '评估', 'analysis', '分析',
+  'implementation', '实现', 'architecture', '架构',
+  'design', '设计', 'features', '功能',
+])
+
+function normalizeText(text: string): string {
+  return text.toLowerCase().replace(/[^\w\s一-鿿]/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+/**
+ * Extract meaningful phrases from a text block.
+ * Returns multi-word phrases (not split into individual words).
+ */
+function extractPhrases(text: string): string[] {
+  // Split by sentence boundaries, commas, semicolons
+  const segments = text.split(/[,，;；。.!！\n]+/).map(s => s.trim()).filter(Boolean)
+  const phrases: string[] = []
+
+  for (const seg of segments) {
+    const normalized = normalizeText(seg)
+    if (!normalized || normalized.length < 4) continue
+    // Skip generic structural headings
+    if (GENERIC_HEADINGS.has(normalized)) continue
+    // Skip if it's just stopwords
+    const words = normalized.split(' ').filter(w => w.length > 1)
+    const meaningful = words.filter(w => !STOPWORDS.has(w) && w.length > 2)
+    if (meaningful.length === 0) continue
+    // Keep the phrase if it has at least one meaningful word
+    phrases.push(seg.trim())
+  }
+
+  return phrases
+}
+
+/**
+ * Extract heading phrases from README markdown, keeping them as complete phrases.
+ */
+function extractHeadingPhrases(readme: string): string[] {
   const headingRegex = /^#{1,3}\s+(.+)$/gm
-  const keywords: string[] = []
+  const phrases: string[] = []
   let match
 
   while ((match = headingRegex.exec(readme)) !== null) {
     const heading = match[1].trim()
-    const words = normalizeText(heading).split(' ').filter(w => w.length > 2 && !STOPWORDS.has(w))
-    keywords.push(...words)
+    const normalized = normalizeText(heading)
+    // Skip generic structural headings
+    if (GENERIC_HEADINGS.has(normalized)) continue
+    // Skip very short headings
+    if (normalized.length < 4) continue
+    // Skip headings that are just numbers (like "1.", "2.1")
+    if (/^\d+[\.\)、]/.test(normalized) && normalized.replace(/[\d\.\)、\s]/g, '').length < 4) continue
+    phrases.push(heading)
   }
 
-  return [...new Set(keywords)]
+  return phrases
 }
 
-function extractBoldKeywords(readme: string): string[] {
+/**
+ * Extract bold phrases from README markdown.
+ */
+function extractBoldPhrases(readme: string): string[] {
   const boldRegex = /\*\*([^*]+)\*\*/g
-  const keywords: string[] = []
+  const phrases: string[] = []
   let match
 
   while ((match = boldRegex.exec(readme)) !== null) {
     const text = match[1].trim()
-    const words = normalizeText(text).split(' ').filter(w => w.length > 2 && !STOPWORDS.has(w))
-    keywords.push(...words)
+    const normalized = normalizeText(text)
+    if (GENERIC_HEADINGS.has(normalized)) continue
+    if (normalized.length < 4) continue
+    phrases.push(text)
   }
 
-  return [...new Set(keywords)]
+  return phrases
 }
 
-function extractCodeBlockTerms(readme: string): string[] {
-  const codeRegex = /`([^`]+)`/g
-  const terms: string[] = []
-  let match
+/**
+ * Extract keywords from KB context: name, description, and readme.
+ * Returns deduplicated, prioritized keywords (most relevant first).
+ */
+export function extractKeywords(name: string, description: string, readme: string): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
 
-  while ((match = codeRegex.exec(readme)) !== null) {
-    const term = match[1].trim()
-    if (term.length > 2 && term.length < 30) {
-      terms.push(term)
+  function addPhrase(phrase: string) {
+    const key = normalizeText(phrase)
+    if (!key || key.length < 3) return
+    if (seen.has(key)) return
+    seen.add(key)
+    result.push(phrase.trim())
+  }
+
+  // Priority 1: KB name (most relevant)
+  if (name) {
+    addPhrase(name)
+  }
+
+  // Priority 2: KB description (contains research focus)
+  if (description) {
+    for (const phrase of extractPhrases(description)) {
+      addPhrase(phrase)
     }
   }
 
-  return [...new Set(terms)]
-}
+  // Priority 3: README heading phrases
+  if (readme) {
+    for (const phrase of extractHeadingPhrases(readme)) {
+      addPhrase(phrase)
+    }
+    for (const phrase of extractBoldPhrases(readme)) {
+      addPhrase(phrase)
+    }
+  }
 
-export function extractKeywords(readme: string): string[] {
-  const headingKeywords = extractHeadingKeywords(readme)
-  const boldKeywords = extractBoldKeywords(readme)
-  const codeTerms = extractCodeBlockTerms(readme)
-
-  const allKeywords = [...new Set([...headingKeywords, ...boldKeywords, ...codeTerms])]
-
-  const filtered = allKeywords.filter(kw => {
-    const normalized = normalizeText(kw)
-    return normalized.length > 2 && !STOPWORDS.has(normalized)
-  })
-
-  return filtered.slice(0, 20)
+  return result.slice(0, 15)
 }
 
 function generateCoreTopicQuery(context: DiscoveryContext): string {
-  if (context.keywords.length > 0) {
-    return context.keywords.slice(0, 3).join(' ')
+  // Use KB name + first description phrase as the primary query
+  if (context.name) {
+    return context.name
   }
-  return context.name
+  if (context.keywords.length > 0) {
+    return context.keywords[0]
+  }
+  return ''
 }
 
 function generateKeywordQueries(context: DiscoveryContext): string[] {
-  return context.keywords.slice(0, 5).map(kw => kw)
+  // Use individual keywords/phrases as queries, skip the first one (used as core topic)
+  return context.keywords.slice(1, 5)
 }
 
 function generateSubDirectionQueries(context: DiscoveryContext): string[] {
@@ -92,8 +166,8 @@ function generateSubDirectionQueries(context: DiscoveryContext): string[] {
   const keywords = context.keywords
 
   if (keywords.length >= 2) {
-    for (let i = 0; i < Math.min(3, keywords.length - 1); i++) {
-      queries.push(`${keywords[0]} ${keywords[i + 1]}`)
+    for (let i = 1; i < Math.min(4, keywords.length); i++) {
+      queries.push(`${keywords[0]} ${keywords[i]}`)
     }
   }
 
@@ -101,13 +175,12 @@ function generateSubDirectionQueries(context: DiscoveryContext): string[] {
 }
 
 function generateMethodFocusedQueries(context: DiscoveryContext): string[] {
-  const methodTerms = ['method', 'approach', 'algorithm', 'technique', 'framework', 'model']
+  const methodTerms = ['survey', 'review', 'benchmark']
   const queries: string[] = []
 
   if (context.keywords.length > 0) {
     const mainTopic = context.keywords[0]
     queries.push(`${mainTopic} ${methodTerms[0]}`)
-    queries.push(`${mainTopic} ${methodTerms[4]}`)
   }
 
   return queries

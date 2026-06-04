@@ -9,5 +9,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('window:maximize-change', handler)
     return () => ipcRenderer.removeListener('window:maximize-change', handler)
   },
+  getAppVersion: () => ipcRenderer.invoke('app:version'),
   isElectron: true,
 })

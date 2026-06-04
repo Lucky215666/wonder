@@ -223,6 +223,39 @@ describe('normalizeAnalysisResult', () => {
     })
   })
 
+  describe('runtime safety', () => {
+    it('converts unexpected scalar fields and drops unsafe arrays', () => {
+      const result = normalizeAnalysisResult({
+        summary: { text: 'object summary' },
+        readingCard: ['card', 'parts'],
+        fit_score: '72',
+        suggestedPlacement: { subDirection: { name: 'systems' }, tags: ['ai', { value: 'rag' }, null] },
+        readmeUpdateSuggestions: [
+          { section: { name: 'Scope' }, suggestion: ['Add boundary'], reason: null },
+          'bad item',
+        ],
+        writingAssets: {
+          usableClaims: ['claim', { nested: true }],
+          possibleLiteratureReviewUse: { use: 'review' },
+        },
+      })
+
+      expect(result).not.toBeNull()
+      expect(result!.summary).toBe('{"text":"object summary"}')
+      expect(result!.readingCard).toBe('["card","parts"]')
+      expect(result!.knowledgeBaseFitScore).toBe(72)
+      expect(result!.suggestedPlacement).toEqual({
+        subDirection: '{"name":"systems"}',
+        tags: ['ai'],
+      })
+      expect(result!.readmeUpdateSuggestions).toEqual([
+        { section: '{"name":"Scope"}', suggestion: '["Add boundary"]', reason: '' },
+      ])
+      expect(result!.writingAssets?.usableClaims).toEqual(['claim'])
+      expect(result!.writingAssets?.possibleLiteratureReviewUse).toBe('{"use":"review"}')
+    })
+  })
+
   describe('priority of snake_case vs camelCase', () => {
     it('prefers snake_case over camelCase for reading_card', () => {
       const result = normalizeAnalysisResult({ reading_card: 'snake', readingCard: 'camel' })

@@ -68,9 +68,14 @@ Please deduplicate, integrate, and reorganize into a complete research reading c
 Fragment Analysis Results:
 {chr(10).join(partial_summaries)}
 
-Output strictly in this format:
+Output strictly in this format. The FIRST LINE must be the paper title:
 
-Paper Title: [Extract the original title of this paper/document from the content. If no clear title is found, write "未知标题"]
+Paper Title: [Extract the exact original title of this paper/document from the content]
+WRONG: **Paper Title:** xxx   (do NOT add markdown bold)
+WRONG: paper title: xxx       (do NOT use lowercase)
+WRONG: 论文标题：xxx           (do NOT use Chinese label)
+RIGHT: Paper Title: Attention Is All You Need
+RIGHT: Paper Title: 未知标题  (only if no title found in the text)
 
 # Research Material Reading Card
 

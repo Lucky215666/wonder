@@ -22,7 +22,7 @@ interface DiscoveryState {
   candidatesError: string | null
   saving: boolean
   loadCandidates: (knowledgeBaseId?: string) => Promise<void>
-  saveCandidate: (candidate: Omit<DiscoveryCandidate, 'id'>) => Promise<void>
+  saveCandidate: (candidate: Omit<DiscoveryCandidate, 'id'>) => Promise<DiscoveryCandidate | undefined>
   updateCandidateState: (id: string, state: DiscoveryCandidate['state']) => Promise<void>
   removeCandidate: (id: string) => Promise<void>
   isInQueue: (paperId: string) => boolean
@@ -127,9 +127,10 @@ export const useDiscoveryStore = create<DiscoveryState>((set, get) => ({
         state: candidate.state,
         knowledgeBaseId: candidate.knowledgeBaseId,
       }
-      await api.post('/api/discovery/candidates', body)
+      const saved: DiscoveryCandidate = await api.post('/api/discovery/candidates', body)
       await get().loadCandidates(candidate.knowledgeBaseId ?? undefined)
       set({ saving: false })
+      return saved
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       set({ saving: false, candidatesError: msg })

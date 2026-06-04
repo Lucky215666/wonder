@@ -356,6 +356,7 @@ ipcMain.on('window:maximize', () => {
   else mainWindow?.maximize()
 })
 ipcMain.on('window:close', () => mainWindow?.close())
+ipcMain.handle('app:version', () => app.getVersion())
 
 ipcMain.on('splash:retry', async () => {
   // Cleanup previous attempt

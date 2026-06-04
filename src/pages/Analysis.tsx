@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Card, Typography, Alert, Button, Spin, message, Tag, Space } from 'antd'
-import { ReloadOutlined, CheckCircleOutlined, BookOutlined, CalendarOutlined, GlobalOutlined } from '@ant-design/icons'
+import { ReloadOutlined, CheckCircleOutlined, BookOutlined, CalendarOutlined, GlobalOutlined, SendOutlined } from '@ant-design/icons'
 import { useSearchParams } from 'react-router-dom'
 import FileUpload from '../components/FileUpload'
 import StepProgress from '../components/StepProgress'
@@ -33,6 +33,7 @@ export default function Analysis() {
   } = useAnalysisStore()
 
   const storeResult = useAnalysisStore(s => s.result)
+  const storeFileName = useAnalysisStore(s => s.fileName)
 
   const { addDocumentToKB } = useKnowledgeStore()
 
@@ -90,11 +91,31 @@ export default function Analysis() {
     }
   }, [documentId, storeResult, running])
 
-  const handleFile = (fileName: string, fileType: string, text: string) => {
+  const handleFile = (fileName: string, fileType: string, text: string, pdfTitle?: string) => {
     reset()
     setAnalysisResult(null)
     setAddedToKB(false)
-    analyze(fileName, fileType, text, selectedKB || undefined)
+    analyze(fileName, fileType, text, selectedKB || undefined, pdfTitle)
+  }
+
+  const handleAnalyzeAbstract = async () => {
+    if (!candidate?.abstract) return
+    if (apiStatus !== 'ok') {
+      const ok = await checkApi()
+      if (!ok) return
+    }
+    if (candidate.id) {
+      try { await api.patch(`/api/discovery/candidates/${candidate.id}`, { state: 'sent_to_analysis' }) } catch {}
+    }
+    reset()
+    setAnalysisResult(null)
+    setAddedToKB(false)
+    analyze(
+      candidate.title || 'discovery-paper',
+      'txt',
+      candidate.abstract,
+      selectedKB || undefined,
+    )
   }
 
   const handleAddToKB = async () => {
@@ -173,11 +194,23 @@ export default function Analysis() {
                 {candidate.abstract}
               </div>
             )}
+            <Space>
+              {candidate.abstract && (
+                <Button
+                  type="primary"
+                  icon={<SendOutlined />}
+                  onClick={handleAnalyzeAbstract}
+                  disabled={running}
+                >
+                  分析摘要
+                </Button>
+              )}
+            </Space>
             <Alert
               type="info"
               showIcon
-              message="请上传论文全文 PDF 进行完整文档分析"
-              style={{ marginBottom: 0 }}
+              message="可直接分析摘要，或上传论文全文 PDF 进行完整分析"
+              style={{ marginTop: 12, marginBottom: 0 }}
             />
           </Card>
         )}
@@ -217,6 +250,7 @@ export default function Analysis() {
                 result={analysisResult}
                 knowledgeBaseId={selectedKB ?? undefined}
                 onAddToKB={selectedKB && !addedToKB ? handleAddToKB : undefined}
+                fileName={storeFileName ?? undefined}
               />
             )}
             {addedToKB && (

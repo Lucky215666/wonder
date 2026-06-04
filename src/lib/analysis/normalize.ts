@@ -1,5 +1,39 @@
 import type { AnalysisResult } from '../../types/analysis'
 
+/* ─── Runtime-safe helpers ─── */
+
+function asString(v: unknown, fallback = ''): string {
+  if (typeof v === 'string') return v
+  if (v == null) return fallback
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v)
+  if (typeof v === 'object') {
+    try {
+      return JSON.stringify(v)
+    } catch {
+      return fallback
+    }
+  }
+  return String(v)
+}
+
+function asNumber(v: unknown): number | undefined {
+  if (typeof v === 'number' && Number.isFinite(v)) return v
+  if (typeof v === 'string') {
+    const n = Number(v)
+    if (Number.isFinite(n)) return n
+  }
+  return undefined
+}
+
+function asStringArray(v: unknown): string[] {
+  if (Array.isArray(v)) return v.filter((x): x is string => typeof x === 'string')
+  return []
+}
+
+function isObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
 /**
  * Normalize raw analysis data to the canonical camelCase AnalysisResult type.
  * Supports three input shapes:
@@ -9,31 +43,34 @@ import type { AnalysisResult } from '../../types/analysis'
  * Returns null for invalid or unrecognizable input.
  */
 export function normalizeAnalysisResult(input: unknown): AnalysisResult | null {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) return null
+  if (!isObject(input)) return null
 
-  const raw = input as Record<string, unknown>
+  const raw = input
 
   // 1. Legacy nested format
-  if (raw.literature && typeof raw.literature === 'object') {
-    const lit = raw.literature as Record<string, unknown>
-    const rel = (raw.relation || {}) as Record<string, unknown>
-    const wri = (raw.writing || {}) as Record<string, unknown>
+  if (isObject(raw.literature)) {
+    const lit = raw.literature
+    const rel = isObject(raw.relation) ? raw.relation : {}
+    const wri = isObject(raw.writing) ? raw.writing : {}
+
+    const writingAssets = isObject(wri.writingAssets) ? normalizeWritingAssets(wri.writingAssets) : undefined
+
     return {
-      summary: (lit.summary as string) || '',
-      paperTitle: (raw.paperTitle as string) || (raw.paper_title as string) || undefined,
-      readingCard: (lit.readingCard as string) || '',
-      knowledgeBaseFitScore: lit.fitScore as number | undefined,
-      fitReason: lit.fitReason as string | undefined,
-      recommendedAction: lit.action as AnalysisResult['recommendedAction'],
-      tags: lit.tags as string[] | undefined,
-      relationToExistingDocs: rel.relationToExistingDocs as AnalysisResult['relationToExistingDocs'],
-      relationAnalysis: rel.relationAnalysis as string | undefined,
-      writingAssets: wri.writingAssets as AnalysisResult['writingAssets'],
-      writingMaterials: wri.writingMaterials as string | undefined,
-      readmeUpdateSuggestions: raw.readmeSuggestions as AnalysisResult['readmeUpdateSuggestions'],
-      todoList: (raw.todo_list as string) || (lit.todoList as string) || undefined,
-      matchScore: lit.matchScore as number | undefined,
-      matchReason: lit.matchReason as string | undefined,
+      summary: asString(lit.summary),
+      paperTitle: asString(raw.paperTitle) || asString(raw.paper_title) || undefined,
+      readingCard: asString(lit.readingCard),
+      knowledgeBaseFitScore: asNumber(lit.fitScore),
+      fitReason: asString(lit.fitReason) || undefined,
+      recommendedAction: (asString(lit.action) || undefined) as AnalysisResult['recommendedAction'],
+      tags: asStringArray(lit.tags),
+      relationToExistingDocs: normalizeRelation(rel.relationToExistingDocs),
+      relationAnalysis: asString(rel.relationAnalysis) || undefined,
+      writingAssets,
+      writingMaterials: asString(wri.writingMaterials) || undefined,
+      readmeUpdateSuggestions: normalizeReadmeSuggestions(raw.readmeSuggestions),
+      todoList: asString(raw.todo_list) || asString(lit.todoList) || undefined,
+      matchScore: asNumber(lit.matchScore),
+      matchReason: asString(lit.matchReason) || undefined,
     }
   }
 
@@ -43,43 +80,78 @@ export function normalizeAnalysisResult(input: unknown): AnalysisResult | null {
   }
 
   // 2 & 3. Flat format — snake_case and camelCase
-  const fitScore = (raw.fit_score as number) ?? (raw.knowledgeBaseFitScore as number) ?? undefined
-  const fitReason = (raw.fit_reason as string) || (raw.fitReason as string) || undefined
-  const relationType = (raw.relation_type as string) || (raw.relationType as string) || undefined
+  const fitScore = asNumber(raw.fit_score) ?? asNumber(raw.knowledgeBaseFitScore)
+  const fitReason = asString(raw.fit_reason) || asString(raw.fitReason) || undefined
+  const relationType = asString(raw.relation_type) || asString(raw.relationType) || undefined
 
   return {
-    summary: (raw.summary as string) || '',
-    paperTitle: (raw.paperTitle as string) || (raw.paper_title as string) || undefined,
-    readingCard: (raw.reading_card as string) || (raw.readingCard as string) || '',
+    summary: asString(raw.summary),
+    paperTitle: asString(raw.paperTitle) || asString(raw.paper_title) || undefined,
+    readingCard: asString(raw.reading_card) || asString(raw.readingCard),
     knowledgeBaseFitScore: fitScore,
     fitReason,
-    relationToExistingDocs: raw.relationToExistingDocs || (relationType ? {
-      type: relationType as AnalysisResult['relationToExistingDocs'] extends { type: infer T } ? T : never,
-      reason: fitReason || '',
-      relatedDocumentIds: [],
-    } : undefined),
-    relationAnalysis: (raw.relation_analysis as string) || (raw.relationAnalysis as string) || undefined,
-    writingMaterials: (raw.writing_materials as string) || (raw.writingMaterials as string) || undefined,
-    todoList: (raw.todo_list as string) || (raw.todoList as string) || undefined,
+    relationToExistingDocs: normalizeRelation(raw.relationToExistingDocs)
+      || (relationType ? {
+        type: relationType as AnalysisResult['relationToExistingDocs'] extends { type: infer T } ? T : never,
+        reason: fitReason || '',
+        relatedDocumentIds: [],
+      } : undefined),
+    relationAnalysis: asString(raw.relation_analysis) || asString(raw.relationAnalysis) || undefined,
+    writingMaterials: asString(raw.writing_materials) || asString(raw.writingMaterials) || undefined,
+    todoList: asString(raw.todo_list) || asString(raw.todoList) || undefined,
     matchScore: fitScore,
     matchReason: fitReason,
-    tags: raw.tags as string[] | undefined,
-    recommendedAction: (raw.recommended_action as string) || (raw.recommendedAction as string) || undefined,
-    suggestedPlacement: (raw.suggestedPlacement as AnalysisResult['suggestedPlacement'])
-      || (raw.suggested_placement ? {
-        subDirection: (raw.suggested_placement as { sub_direction: string; tags: string[] }).sub_direction || '',
-        tags: (raw.suggested_placement as { sub_direction: string; tags: string[] }).tags || [],
-      } : undefined),
-    noveltyForKnowledgeBase: (raw.noveltyForKnowledgeBase as string) || (raw.novelty_for_kb as string) || undefined,
-    readmeUpdateSuggestions: (raw.readmeUpdateSuggestions as AnalysisResult['readmeUpdateSuggestions'])
-      || (raw.readme_suggestions as AnalysisResult['readmeUpdateSuggestions']) || undefined,
-    writingAssets: (raw.writingAssets as AnalysisResult['writingAssets'])
-      || (raw.writing_assets ? {
-        usableClaims: (raw.writing_assets as { usable_claims: string[] }).usable_claims || [],
-        methodReferences: (raw.writing_assets as { method_references: string[] }).method_references || [],
-        theoryReferences: (raw.writing_assets as { theory_references: string[] }).theory_references || [],
-        possibleLiteratureReviewUse: (raw.writing_assets as { possible_literature_review_use: string }).possible_literature_review_use || '',
-        limitationsOrCritique: (raw.writing_assets as { limitations_or_critique: string }).limitations_or_critique || '',
-      } : undefined),
-  } as AnalysisResult
+    tags: asStringArray(raw.tags),
+    recommendedAction: (asString(raw.recommended_action) || asString(raw.recommendedAction) || undefined) as AnalysisResult['recommendedAction'],
+    suggestedPlacement: normalizePlacement(raw.suggestedPlacement) || normalizePlacement(raw.suggested_placement),
+    noveltyForKnowledgeBase: asString(raw.noveltyForKnowledgeBase) || asString(raw.novelty_for_kb) || undefined,
+    readmeUpdateSuggestions: normalizeReadmeSuggestions(raw.readmeUpdateSuggestions)
+      || normalizeReadmeSuggestions(raw.readme_suggestions),
+    writingAssets: normalizeWritingAssets(raw.writingAssets) || normalizeWritingAssets(raw.writing_assets),
+  }
+}
+
+/* ─── Sub-normalizers ─── */
+
+function normalizeWritingAssets(raw: unknown): AnalysisResult['writingAssets'] | undefined {
+  if (!isObject(raw)) return undefined
+  return {
+    usableClaims: asStringArray(raw.usable_claims ?? raw.usableClaims),
+    methodReferences: asStringArray(raw.method_references ?? raw.methodReferences),
+    theoryReferences: asStringArray(raw.theory_references ?? raw.theoryReferences),
+    possibleLiteratureReviewUse: asString(raw.possible_literature_review_use ?? raw.possibleLiteratureReviewUse),
+    limitationsOrCritique: asString(raw.limitations_or_critique ?? raw.limitationsOrCritique),
+  }
+}
+
+function normalizePlacement(raw: unknown): AnalysisResult['suggestedPlacement'] | undefined {
+  if (!isObject(raw)) return undefined
+  return {
+    subDirection: asString(raw.sub_direction ?? raw.subDirection),
+    tags: asStringArray(raw.tags),
+  }
+}
+
+function normalizeRelation(raw: unknown): AnalysisResult['relationToExistingDocs'] | undefined {
+  if (!isObject(raw)) return undefined
+  const type = asString(raw.type)
+  if (!type) return undefined
+  return {
+    type: type as AnalysisResult['relationToExistingDocs'] extends { type: infer T } ? T : never,
+    reason: asString(raw.reason),
+    relatedDocumentIds: asStringArray(raw.relatedDocumentIds),
+  }
+}
+
+function normalizeReadmeSuggestions(raw: unknown): AnalysisResult['readmeUpdateSuggestions'] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const items = raw
+    .filter(isObject)
+    .map(item => ({
+      section: asString(item.section),
+      suggestion: asString(item.suggestion),
+      reason: asString(item.reason),
+    }))
+    .filter(item => item.section || item.suggestion)
+  return items.length > 0 ? items : undefined
 }

@@ -130,6 +130,11 @@ export const useKnowledgeStore = create<KnowledgeState>((set, get) => ({
           kb.id === kbId ? { ...kb, documentCount: (kb.documentCount ?? 0) + 1 } : kb
         ),
       }))
+      // Refresh KB list after a delay to pick up asynchronously generated README suggestions
+      setTimeout(() => {
+        set({ kbLoaded: false })
+        get().loadKnowledgeBases()
+      }, 3000)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       set({ error: msg })

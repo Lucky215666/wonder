@@ -114,7 +114,7 @@ export default function DocumentDetail() {
       </div>
 
       {hasStructuredResult ? (
-        <AnalysisResult result={result} />
+        <AnalysisResult result={result} fileName={doc.file_name || undefined} />
       ) : (
         <Card>
           <Typography.Text type="secondary">该文档暂无分析报告</Typography.Text>

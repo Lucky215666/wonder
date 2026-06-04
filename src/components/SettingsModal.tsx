@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Input, Button, message, Avatar, Tag, Select, AutoComplete, Typography } from 'antd'
+import { Input, Button, message, Tag, Select, AutoComplete, Typography, Spin } from 'antd'
 import {
   ApiOutlined,
   KeyOutlined,
@@ -13,9 +13,13 @@ import {
   CheckOutlined,
   PlusOutlined,
   CameraOutlined,
+  LinkOutlined,
+  ArrowUpOutlined,
+  CheckCircleOutlined,
 } from '@ant-design/icons'
 import { useConfigStore } from '../stores/config'
 import { useUIStore } from '../stores/ui'
+import { checkForUpdate, type UpdateInfo } from '../services/update'
 import type { NormalizedAppConfig, ChatProvider, EmbeddingProvider } from '../types/config'
 
 type SettingsTab = 'api' | 'research' | 'update' | 'profile'
@@ -70,14 +74,6 @@ const providerPresets: ProviderPreset[] = [
     chatModels: ['mimo-v2.5-pro'],
     embeddingModels: [],
   },
-  {
-    id: 'siliconflow',
-    name: '硅基流动',
-    provider: 'openai_compatible',
-    baseUrl: 'https://api.siliconflow.cn/v1',
-    chatModels: ['Qwen/Qwen2.5-7B-Instruct'],
-    embeddingModels: ['BAAI/bge-large-zh-v1.5', 'BAAI/bge-m3'],
-  },
 ]
 
 const tabs: { key: SettingsTab; icon: React.ReactNode; label: string }[] = [
@@ -92,6 +88,14 @@ interface SettingsModalProps {
   onClose: () => void
 }
 
+function getCurrentVersion(): string {
+  try {
+    return (import.meta as any).env?.VITE_APP_VERSION || '0.0.0'
+  } catch {
+    return '0.0.0'
+  }
+}
+
 export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const { config, loadConfig, saveConfig, saving } = useConfigStore()
   const { settingsTarget } = useUIStore()
@@ -99,6 +103,9 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const analysisRef = useRef<HTMLDivElement>(null)
   const embeddingRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null)
+  const [checkingUpdate, setCheckingUpdate] = useState(false)
+  const [currentVersion, setCurrentVersion] = useState(getCurrentVersion())
   const [form, setForm] = useState({
     chatPreset: '',
     chatProvider: '' as ChatProvider | '',
@@ -125,6 +132,24 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   }
 
   useEffect(() => { loadConfig() }, [loadConfig])
+
+  // Auto-check for updates when the update tab is opened
+  useEffect(() => {
+    if (activeTab === 'update' && !updateInfo && !checkingUpdate) {
+      setCheckingUpdate(true)
+      const fetchVersion = window.electronAPI?.getAppVersion
+        ? window.electronAPI.getAppVersion()
+        : Promise.resolve(getCurrentVersion())
+
+      fetchVersion
+        .then(version => {
+          setCurrentVersion(version)
+          return checkForUpdate(version)
+        })
+        .then(info => { if (info) setUpdateInfo(info) })
+        .finally(() => setCheckingUpdate(false))
+    }
+  }, [activeTab, updateInfo, checkingUpdate])
 
   const hasScrolled = useRef(false)
 
@@ -344,15 +369,18 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
             </>
           ) : (
             <>
-              <button
-                className={`wonder-provider-card ${presetId === 'siliconflow' && !isLocal ? 'wonder-provider-card--active' : ''}`}
-                onClick={() => handleProviderChange('siliconflow', target)}
-              >
-                <span className="wonder-provider-name">硅基流动</span>
-                {presetId === 'siliconflow' && !isLocal && (
-                  <CheckOutlined className="wonder-provider-check" />
-                )}
-              </button>
+              {providerPresets.filter(p => p.embeddingModels.length > 0).map(preset => (
+                <button
+                  key={preset.id}
+                  className={`wonder-provider-card ${presetId === preset.id && !isLocal ? 'wonder-provider-card--active' : ''}`}
+                  onClick={() => handleProviderChange(preset.id, target)}
+                >
+                  <span className="wonder-provider-name">{preset.name}</span>
+                  {presetId === preset.id && !isLocal && (
+                    <CheckOutlined className="wonder-provider-check" />
+                  )}
+                </button>
+              ))}
               <button
                 className={`wonder-provider-card ${isLocal ? 'wonder-provider-card--active' : ''}`}
                 onClick={handleLocalEmbedding}
@@ -628,22 +656,101 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
               <h2 className="wonder-settings-pane-title">
                 <SyncOutlined /> 查看更新
               </h2>
-              <p className="wonder-settings-pane-desc">了解 Wonder 的最新功能和改进</p>
+              <p className="wonder-settings-pane-desc">检查 Wonder 的最新版本</p>
 
-              <div className="wonder-settings-update-card">
-                <div className="wonder-settings-update-header">
-                  <Tag color="green">最新版本</Tag>
-                  <span className="wonder-settings-update-version">v1.0.0</span>
-                  <span className="wonder-settings-update-date">2026-05-29</span>
-                </div>
-                <ul className="wonder-settings-update-list">
-                  <li>单篇论文深度分析</li>
-                  <li>批量矩阵对比</li>
-                  <li>文献发现与引用网络</li>
-                  <li>追溯问答系统</li>
-                  <li>知识库管理</li>
-                </ul>
+              {/* 当前版本 */}
+              <div style={{ marginBottom: 20, padding: '16px', background: 'var(--bg-secondary, #f5f5f5)', borderRadius: 10 }}>
+                <Typography.Text style={{ color: 'var(--ink-caption)', fontSize: 13, display: 'block', marginBottom: 4 }}>
+                  当前版本
+                </Typography.Text>
+                <Typography.Text strong style={{ fontSize: 18 }}>
+                  v{currentVersion}
+                </Typography.Text>
               </div>
+
+              {/* 检查结果 */}
+              {checkingUpdate && (
+                <div style={{ textAlign: 'center', padding: '32px 0' }}>
+                  <Spin />
+                  <Typography.Text style={{ display: 'block', marginTop: 12, color: 'var(--ink-muted)' }}>
+                    正在检查更新...
+                  </Typography.Text>
+                </div>
+              )}
+
+              {updateInfo && !checkingUpdate && (
+                <>
+                  {updateInfo.hasUpdate ? (
+                    <div className="wonder-settings-update-card" style={{ border: '1px solid #5B7F6E' }}>
+                      <div className="wonder-settings-update-header">
+                        <Tag color="green" icon={<ArrowUpOutlined />}>发现新版本</Tag>
+                        <span className="wonder-settings-update-version">v{updateInfo.latestVersion}</span>
+                        <span className="wonder-settings-update-date">
+                          {new Date(updateInfo.publishedAt).toLocaleDateString('zh-CN')}
+                        </span>
+                      </div>
+
+                      {updateInfo.releaseBody && (
+                        <div style={{ marginTop: 12, fontSize: 13, lineHeight: 1.8, color: 'var(--ink-body, #333)', whiteSpace: 'pre-wrap' }}>
+                          {updateInfo.releaseBody}
+                        </div>
+                      )}
+
+                      <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
+                        {updateInfo.downloadUrl && (
+                          <Button
+                            type="primary"
+                            icon={<LinkOutlined />}
+                            href={updateInfo.downloadUrl}
+                            target="_blank"
+                          >
+                            下载更新
+                          </Button>
+                        )}
+                        <Button
+                          icon={<LinkOutlined />}
+                          href={updateInfo.releaseUrl}
+                          target="_blank"
+                        >
+                          查看 Release
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ textAlign: 'center', padding: '32px 0' }}>
+                      <CheckCircleOutlined style={{ fontSize: 40, color: '#5B7F6E' }} />
+                      <Typography.Text style={{ display: 'block', marginTop: 12, fontSize: 15 }}>
+                        已是最新版本
+                      </Typography.Text>
+                      <Typography.Text style={{ display: 'block', marginTop: 4, color: 'var(--ink-muted)', fontSize: 13 }}>
+                        v{updateInfo.currentVersion} — 发布于 {new Date(updateInfo.publishedAt).toLocaleDateString('zh-CN')}
+                      </Typography.Text>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* 手动检查按钮 */}
+              {!checkingUpdate && (
+                <Button
+                  style={{ marginTop: 16 }}
+                  icon={<SyncOutlined />}
+                  onClick={() => {
+                    setUpdateInfo(null)
+                    setCheckingUpdate(true)
+                    const fetchVersion = window.electronAPI?.getAppVersion
+                      ? window.electronAPI.getAppVersion()
+                      : Promise.resolve(getCurrentVersion())
+
+                    fetchVersion
+                      .then(version => checkForUpdate(version))
+                      .then(info => { if (info) setUpdateInfo(info) })
+                      .finally(() => setCheckingUpdate(false))
+                  }}
+                >
+                  重新检查
+                </Button>
+              )}
             </div>
           )}
 

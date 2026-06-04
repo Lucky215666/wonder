@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Typography, Input, Select, Button, message, Steps } from 'antd'
+import { Typography, Input, AutoComplete, Button, message, Steps } from 'antd'
 import {
   ThunderboltOutlined,
   ApiOutlined,
@@ -227,13 +227,13 @@ export default function Welcome() {
                   onChange={e => setForm(f => ({ ...f, model: e.target.value }))}
                 />
               ) : (
-                <Select
+                <AutoComplete
                   style={{ width: '100%' }}
-                  placeholder="选择模型"
+                  placeholder="选择或输入模型名称"
                   value={form.model || undefined}
                   onChange={value => setForm(f => ({ ...f, model: value }))}
                   options={providers.find(p => p.id === form.provider)?.models.map(m => ({ label: m, value: m }))}
-                  showSearch
+                  allowClear
                 />
               )}
             </div>
@@ -295,13 +295,13 @@ export default function Welcome() {
                   onChange={e => setForm(f => ({ ...f, embeddingModel: e.target.value }))}
                 />
               ) : (
-                <Select
+                <AutoComplete
                   style={{ width: '100%' }}
-                  placeholder="选择模型"
+                  placeholder="选择或输入模型名称"
                   value={form.embeddingModel || undefined}
                   onChange={value => setForm(f => ({ ...f, embeddingModel: value }))}
                   options={providers.find(p => p.id === form.embeddingProvider)?.models.map(m => ({ label: m, value: m }))}
-                  showSearch
+                  allowClear
                 />
               )}
             </div>

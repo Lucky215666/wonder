@@ -179,6 +179,7 @@ class GatewayAnalysisRequest(BaseModel):
     max_chars: int = 7000
     overlap: int = 500
     chat_config: Optional[ChatConfig] = None
+    pdf_title: Optional[str] = None
 
 
 class GatewayAnalysisResponse(BaseModel):

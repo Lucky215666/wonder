@@ -2,20 +2,46 @@ appId: com.wonder.app
 productName: Wonder
 copyright: "Copyright © 2026 Bruce Zhao"
 icon: public/icon.ico
+electronDist: node_modules/electron/dist
 directories:
   output: release
 files:
   - dist/
   - dist-electron/
   - dist-server/
-  - node_modules/
   - package.json
   - public/
+  - "!node_modules/**/*.bak"
+extraResources:
+  - from: backend/main.py
+    to: backend/main.py
+  - from: backend/requirements.txt
+    to: backend/requirements.txt
+  - from: backend/agents
+    to: backend/agents
+  - from: backend/api
+    to: backend/api
+    filter:
+      - "**/*.py"
+  - from: backend/core
+    to: backend/core
+    filter:
+      - "**/*.py"
+  - from: backend/models
+    to: backend/models
+    filter:
+      - "**/*.py"
+  - from: backend/rag
+    to: backend/rag
+    filter:
+      - "**/*.py"
+  - from: backend/__init__.py
+    to: backend/__init__.py
 asarUnpack:
   - node_modules/better-sqlite3/**
   - dist/renderer/**
 npmRebuild: false
-afterPack: scripts/after-pack.js
+# afterPack: scripts/after-pack.js
 win:
   target: portable
   signAndEditExecutable: false

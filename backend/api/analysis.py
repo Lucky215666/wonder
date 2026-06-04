@@ -106,6 +106,7 @@ async def analyze_gateway(body: GatewayAnalysisRequest, req: Request):
                 ),
                 writing_style="",
                 progress_callback=progress_callback,
+                pdf_title=body.pdf_title or "",
             ):
                 put(event)
         except Exception as exc:
@@ -133,12 +134,11 @@ async def analyze_gateway(body: GatewayAnalysisRequest, req: Request):
                     return
 
                 # Thread finished — drain remaining queue items then exit loop
-                if not thread.is_alive():
-                    break
-
                 try:
                     item = await asyncio.wait_for(progress_queue.get(), timeout=0.5)
                 except asyncio.TimeoutError:
+                    if not thread.is_alive():
+                        break
                     # Send heartbeat if idle too long
                     if _time.monotonic() - last_activity >= HEARTBEAT_INTERVAL:
                         yield ": heartbeat\n\n"
@@ -171,7 +171,7 @@ async def analyze_gateway(body: GatewayAnalysisRequest, req: Request):
                 elif status == "done":
                     result[step] = item.get("data", "")
                     # Don't emit SSE for internal metadata events
-                    if step != "relation_meta":
+                    if step not in ("relation_meta", "writing_meta"):
                         yield f"event: agent_done\ndata: {json.dumps({'step': step}, ensure_ascii=False)}\n\n"
 
             reading_card = result.get("literature", "")

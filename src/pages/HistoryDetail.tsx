@@ -57,6 +57,7 @@ export default function HistoryDetail() {
 
   const isStructured = parsed && typeof parsed === 'object' && !Array.isArray(parsed) && ('summary' in parsed || 'readingCard' in parsed)
   const paperTitle = isStructured ? (parsed as AnalysisResultType).paperTitle : undefined
+  const fileName = isStructured ? (parsed as Record<string, unknown>).fileName as string | undefined : undefined
 
   return (
     <div className="wonder-page wonder-stagger">
@@ -72,7 +73,7 @@ export default function HistoryDetail() {
       </div>
 
       {isStructured ? (
-        <AnalysisResult result={parsed as AnalysisResultType} />
+        <AnalysisResult result={parsed as AnalysisResultType} fileName={fileName} />
       ) : (
         <Card>
           <pre style={{

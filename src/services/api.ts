@@ -74,7 +74,7 @@ export const api = {
   patch: <T>(path: string, body?: unknown, signal?: AbortSignal) => request<T>('PATCH', path, body, signal),
   delete: <T>(path: string, signal?: AbortSignal) => request<T>('DELETE', path, undefined, signal),
 
-  parseFile: async (file: File): Promise<{ text: string; fileName: string }> => {
+  parseFile: async (file: File): Promise<{ text: string; fileName: string; pdfTitle?: string }> => {
     const form = new FormData()
     form.append('file', file)
     let res: Response

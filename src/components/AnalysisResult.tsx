@@ -20,10 +20,11 @@ import remarkGfm from 'remark-gfm'
 import type { AnalysisResult as AnalysisResultType } from '../types/analysis'
 
 /* ─── Markdown renderer for AI-generated academic content ─── */
-function Markdown({ children }: { children: string }) {
+function Markdown({ children }: { children: unknown }) {
+  const text = typeof children === 'string' ? children : children == null ? '' : String(children)
   return (
     <div className="md-body">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
     </div>
   )
 }
@@ -32,6 +33,7 @@ interface AnalysisResultProps {
   result: AnalysisResultType
   knowledgeBaseId?: string
   onAddToKB?: () => void
+  fileName?: string
 }
 
 const ACTION_LABELS: Record<string, { text: string; color: string; icon: React.ReactNode }> = {
@@ -52,13 +54,15 @@ const RELATION_LABELS: Record<string, { text: string; color: string }> = {
   unrelated: { text: '无关', color: 'default' },
 }
 
-function getFitScoreColor(score: number): string {
+function getFitScoreColor(score: number | undefined): string {
+  if (typeof score !== 'number' || !Number.isFinite(score)) return 'var(--danger, #8B2C1F)'
   if (score >= 70) return 'var(--success, #4A6B4A)'
   if (score >= 40) return 'var(--warning, #B8860B)'
   return 'var(--danger, #8B2C1F)'
 }
 
-function getFitScoreLabel(score: number): string {
+function getFitScoreLabel(score: number | undefined): string {
+  if (typeof score !== 'number' || !Number.isFinite(score)) return '未知'
   if (score >= 80) return '高度适配'
   if (score >= 60) return '较为相关'
   if (score >= 40) return '部分相关'
@@ -66,7 +70,8 @@ function getFitScoreLabel(score: number): string {
   return '基本无关'
 }
 
-function getFitScoreBg(score: number): string {
+function getFitScoreBg(score: number | undefined): string {
+  if (typeof score !== 'number' || !Number.isFinite(score)) return 'rgba(139, 44, 31, 0.06)'
   if (score >= 70) return 'rgba(74, 107, 74, 0.06)'
   if (score >= 40) return 'rgba(184, 134, 11, 0.06)'
   return 'rgba(139, 44, 31, 0.06)'
@@ -111,7 +116,7 @@ function Section({ icon, title, children, accent }: {
   )
 }
 
-export default function AnalysisResult({ result, knowledgeBaseId, onAddToKB }: AnalysisResultProps) {
+export default function AnalysisResult({ result, knowledgeBaseId, onAddToKB, fileName }: AnalysisResultProps) {
   const fitScore = result.knowledgeBaseFitScore
   const action = result.recommendedAction
   const actionInfo = action ? ACTION_LABELS[action] : null
@@ -121,8 +126,43 @@ export default function AnalysisResult({ result, knowledgeBaseId, onAddToKB }: A
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
+      {/* ─── Paper Title Header ─── */}
+      {(result.paperTitle || fileName) && (
+        <div style={{
+          background: 'var(--bg-card)',
+          border: '1px solid var(--border-light)',
+          borderRadius: 'var(--radius-card)',
+          padding: '16px 20px',
+        }}>
+          {result.paperTitle && (
+            <div style={{
+              fontFamily: 'var(--font-serif)',
+              fontWeight: 700,
+              fontSize: 16,
+              color: 'var(--ink-dense)',
+              lineHeight: 1.5,
+            }}>
+              {result.paperTitle}
+            </div>
+          )}
+          {fileName && (
+            <div style={{
+              fontSize: 12,
+              color: 'var(--ink-caption)',
+              marginTop: result.paperTitle ? 4 : 0,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+            }}>
+              <FileTextOutlined style={{ fontSize: 11 }} />
+              {fileName}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ─── Fit Score Hero ─── */}
-      {fitScore !== undefined && (
+      {typeof fitScore === 'number' && Number.isFinite(fitScore) && (
         <div style={{
           background: getFitScoreBg(fitScore),
           border: '1px solid var(--border-light)',
@@ -197,7 +237,7 @@ export default function AnalysisResult({ result, knowledgeBaseId, onAddToKB }: A
                 </Tag>
               )}
             </div>
-            {result.fitReason && (
+            {result.fitReason && typeof result.fitReason === 'string' && (
               <Markdown>{result.fitReason}</Markdown>
             )}
             {relation && (
@@ -211,19 +251,19 @@ export default function AnalysisResult({ result, knowledgeBaseId, onAddToKB }: A
       )}
 
       {/* ─── Summary ─── */}
-      {result.summary && (
+      {result.summary && typeof result.summary === 'string' && (
         <Section icon={<FileTextOutlined />} title="摘要">
           <Markdown>{result.summary}</Markdown>
         </Section>
       )}
 
       {/* ─── Reading Card ─── */}
-      {result.readingCard && (
+      {result.readingCard && typeof result.readingCard === 'string' && (
         <ReadingCard content={result.readingCard} />
       )}
 
       {/* ─── Novelty ─── */}
-      {result.noveltyForKnowledgeBase && (
+      {result.noveltyForKnowledgeBase && typeof result.noveltyForKnowledgeBase === 'string' && (
         <Section icon={<BulbOutlined />} title="对知识库的新贡献" accent="rgba(91, 127, 110, 0.06)">
           <Markdown>{result.noveltyForKnowledgeBase}</Markdown>
         </Section>
@@ -237,7 +277,7 @@ export default function AnalysisResult({ result, knowledgeBaseId, onAddToKB }: A
               <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink-caption)' }}>子方向：</span>
               <span style={{ fontSize: 13, color: 'var(--ink-dense)', fontWeight: 500 }}>{result.suggestedPlacement.subDirection}</span>
             </div>
-            {result.suggestedPlacement.tags.length > 0 && (
+            {Array.isArray(result.suggestedPlacement.tags) && result.suggestedPlacement.tags.length > 0 && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {result.suggestedPlacement.tags.map(tag => (
                   <Tag key={tag} style={{ margin: 0 }}>{tag}</Tag>
@@ -249,17 +289,17 @@ export default function AnalysisResult({ result, knowledgeBaseId, onAddToKB }: A
       )}
 
       {/* ─── Writing Materials ─── */}
-      {result.writingMaterials && (
+      {result.writingMaterials && typeof result.writingMaterials === 'string' && (
         <Section icon={<EditOutlined />} title="写作素材">
           <Markdown>{result.writingMaterials}</Markdown>
         </Section>
       )}
 
       {/* ─── Writing Assets (structured) ─── */}
-      {result.writingAssets && (
+      {result.writingAssets && typeof result.writingAssets === 'object' && (
         <Section icon={<SolutionOutlined />} title="写作资产">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {result.writingAssets.usableClaims.length > 0 && (
+            {Array.isArray(result.writingAssets.usableClaims) && result.writingAssets.usableClaims.length > 0 && (
               <div>
                 <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-caption)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                   可用论点
@@ -275,7 +315,7 @@ export default function AnalysisResult({ result, knowledgeBaseId, onAddToKB }: A
                 />
               </div>
             )}
-            {result.writingAssets.possibleLiteratureReviewUse && (
+            {result.writingAssets.possibleLiteratureReviewUse && typeof result.writingAssets.possibleLiteratureReviewUse === 'string' && (
               <div>
                 <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-caption)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                   文献综述用途
@@ -283,7 +323,7 @@ export default function AnalysisResult({ result, knowledgeBaseId, onAddToKB }: A
                 <Markdown>{result.writingAssets.possibleLiteratureReviewUse}</Markdown>
               </div>
             )}
-            {result.writingAssets.limitationsOrCritique && (
+            {result.writingAssets.limitationsOrCritique && typeof result.writingAssets.limitationsOrCritique === 'string' && (
               <div>
                 <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-caption)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                   局限与批评
@@ -296,21 +336,21 @@ export default function AnalysisResult({ result, knowledgeBaseId, onAddToKB }: A
       )}
 
       {/* ─── Todo List ─── */}
-      {result.todoList && (
+      {result.todoList && typeof result.todoList === 'string' && (
         <Section icon={<OrderedListOutlined />} title="待办事项">
           <Markdown>{result.todoList}</Markdown>
         </Section>
       )}
 
       {/* ─── Relation Analysis ─── */}
-      {result.relationAnalysis && (
+      {result.relationAnalysis && typeof result.relationAnalysis === 'string' && (
         <Section icon={<BookOutlined />} title="关联分析">
           <Markdown>{result.relationAnalysis}</Markdown>
         </Section>
       )}
 
       {/* ─── README Suggestions ─── */}
-      {result.readmeUpdateSuggestions && result.readmeUpdateSuggestions.length > 0 && (
+      {Array.isArray(result.readmeUpdateSuggestions) && result.readmeUpdateSuggestions.length > 0 && (
         <Section icon={<NumberOutlined />} title="README 更新建议">
           <List
             size="small"
@@ -364,7 +404,7 @@ export default function AnalysisResult({ result, knowledgeBaseId, onAddToKB }: A
 /* ─── Reading Card sub-component ─── */
 
 interface ReadingCardProps {
-  content: string
+  content: unknown
 }
 
 type ContentKind = 'core' | 'method' | 'innovation' | 'limitation'
@@ -482,12 +522,13 @@ function SectionCard({ section, accent }: { section: ParsedSection; accent: bool
 }
 
 function ReadingCard({ content }: ReadingCardProps) {
-  const sections = parseReadingCard(content)
+  const text = typeof content === 'string' ? content : content == null ? '' : String(content)
+  const sections = parseReadingCard(text)
 
   if (sections.length === 0) {
     return (
       <Section icon={<ReadOutlined />} title="阅读卡片">
-        <Markdown>{truncateBody(content, 800)}</Markdown>
+        <Markdown>{truncateBody(text, 800)}</Markdown>
       </Section>
     )
   }

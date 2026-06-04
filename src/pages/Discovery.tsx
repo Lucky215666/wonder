@@ -24,7 +24,7 @@ export default function Discovery() {
     discoveryContext, setDiscoveryContext,
     searchResults, searchLoading, hasSearched, searchError, searchPapers,
     candidateQueue, loadCandidates, saveCandidate,
-    updateCandidateState, isInQueue, getCandidate,
+    isInQueue, getCandidate,
   } = useDiscoveryStore()
 
   const { knowledgeBases, loadKnowledgeBases } = useKnowledgeStore()
@@ -63,11 +63,12 @@ export default function Discovery() {
       if (!selectedKBId) { message.warning('请选择知识库'); return }
       const kb = knowledgeBases.find(k => k.id === selectedKBId)
       if (!kb) return
-      const keywords = extractKeywords(kb.readme || '')
+      const keywords = extractKeywords(kb.name, kb.description || '', kb.readme || '')
       setDiscoveryContext({
         mode: 'knowledge_base',
         knowledgeBaseId: selectedKBId,
         name: kb.name,
+        description: kb.description,
         readme: kb.readme,
         keywords,
       })
@@ -130,14 +131,13 @@ export default function Discovery() {
     message.info('已忽略该论文')
   }
 
-  const handlePrepareForAnalysis = (paper: S2Paper) => {
+  const handlePrepareForAnalysis = async (paper: S2Paper) => {
     if (!discoveryContext) { message.warning('请先设置发现上下文'); return }
     const ranking = calculateDiscoveryPriorityScore(paper, discoveryContext.keywords)
-    const candidate = getCandidate(paper.paperId)
-    const candidateId = candidate?.id
-    // Save as candidate first if not already in queue
-    if (!candidate) {
-      saveCandidate({
+    const existing = getCandidate(paper.paperId)
+    let candidateId = existing?.id
+    if (!candidateId) {
+      const saved = await saveCandidate({
         paperId: paper.paperId,
         title: paper.title,
         abstract: paper.abstract,
@@ -150,18 +150,15 @@ export default function Discovery() {
         sourceQuery: query,
         discoveryPriorityScore: ranking.score,
         discoveryReason: ranking.reason,
-        state: 'sent_to_analysis',
+        state: 'saved',
         knowledgeBaseId: discoveryContext.knowledgeBaseId ?? null,
       })
-    } else if (candidateId) {
-      updateCandidateState(candidateId, 'sent_to_analysis')
+      candidateId = saved?.id
     }
-    // Navigate with URL params
     const params = new URLSearchParams()
     if (candidateId) params.set('candidateId', candidateId)
     if (discoveryContext.knowledgeBaseId) params.set('kb', discoveryContext.knowledgeBaseId)
     navigate(`/analysis?${params.toString()}`)
-    message.success('已准备分析载荷，可前往分析页面')
   }
 
   const getCandidateStateTag = (paperId: string) => {

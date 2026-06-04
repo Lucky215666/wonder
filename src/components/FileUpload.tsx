@@ -4,7 +4,7 @@ import { message } from 'antd'
 import { api } from '../services/api'
 
 interface Props {
-  onFileContent: (fileName: string, fileType: string, content: string) => void
+  onFileContent: (fileName: string, fileType: string, content: string, pdfTitle?: string) => void
   disabled?: boolean
 }
 
@@ -12,7 +12,7 @@ export default function FileUpload({ onFileContent, disabled }: Props) {
   const [dragging, setDragging] = useState(false)
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [parsing, setParsing] = useState(false)
-  const parsedContentRef = useRef<{ text: string; fileType: string } | null>(null)
+  const parsedContentRef = useRef<{ text: string; fileType: string; pdfTitle?: string } | null>(null)
 
   const processFile = async (file: File) => {
     if (disabled) return
@@ -25,10 +25,10 @@ export default function FileUpload({ onFileContent, disabled }: Props) {
     } else if (ext === 'pdf' || ext === 'docx') {
       setParsing(true)
       try {
-        const { text, fileName } = await api.parseFile(file)
-        parsedContentRef.current = { text, fileType: ext }
+        const { text, fileName, pdfTitle } = await api.parseFile(file)
+        parsedContentRef.current = { text, fileType: ext, pdfTitle }
         setSelectedFile(fileName)
-        onFileContent(fileName, ext, text)
+        onFileContent(fileName, ext, text, pdfTitle)
       } catch (err) {
         message.error(err instanceof Error ? err.message : '文件解析失败')
       } finally {
@@ -41,7 +41,7 @@ export default function FileUpload({ onFileContent, disabled }: Props) {
 
   const handleRetry = () => {
     if (disabled || !selectedFile || !parsedContentRef.current) return
-    onFileContent(selectedFile, parsedContentRef.current.fileType, parsedContentRef.current.text)
+    onFileContent(selectedFile, parsedContentRef.current.fileType, parsedContentRef.current.text, parsedContentRef.current.pdfTitle)
   }
 
   const handleClear = () => {

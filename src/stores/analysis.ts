@@ -15,13 +15,14 @@ interface AnalysisState {
   running: boolean
   documentId: string | null
   knowledgeBaseId: string | null
+  fileName: string | null
   result: Record<string, unknown> | null
   apiStatus: 'idle' | 'checking' | 'ok' | 'error'
   apiError: string | null
   abortController: AbortController | null
 
   checkApi: () => Promise<boolean>
-  analyze: (fileName: string, fileType: string, text: string, knowledgeBaseId?: string) => Promise<void>
+  analyze: (fileName: string, fileType: string, text: string, knowledgeBaseId?: string, pdfTitle?: string) => Promise<void>
   cancel: () => void
   reset: () => void
   setResult: (result: Record<string, unknown>) => void
@@ -32,6 +33,7 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => ({
   running: false,
   documentId: null,
   knowledgeBaseId: null,
+  fileName: null,
   result: null,
   apiStatus: 'idle',
   apiError: null,
@@ -56,14 +58,14 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => ({
     }
   },
 
-  analyze: async (fileName, fileType, text, knowledgeBaseId) => {
+  analyze: async (fileName, fileType, text, knowledgeBaseId, pdfTitle) => {
     const ac = new AbortController()
-    set({ running: true, steps: [], documentId: null, knowledgeBaseId: knowledgeBaseId || null, abortController: ac })
+    set({ running: true, steps: [], documentId: null, knowledgeBaseId: knowledgeBaseId || null, fileName: fileName || null, abortController: ac })
 
     try {
       await api.stream(
         '/api/analysis/single',
-        { fileName, fileType, text, knowledgeBaseId },
+        { fileName, fileType, text, knowledgeBaseId, pdfTitle },
         (event, data) => {
           if (event === 'step') {
             const step = JSON.parse(data) as AnalysisStep
@@ -109,8 +111,8 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => ({
           ),
         }))
       } else {
-        set({ running: false, abortController: null })
-        throw err
+        const message = err instanceof Error ? err.message : '分析过程中发生未知错误'
+        set({ running: false, abortController: null, apiStatus: 'error', apiError: message })
       }
     }
   },
@@ -119,6 +121,6 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => ({
     get().abortController?.abort()
   },
 
-  reset: () => set({ steps: [], running: false, documentId: null, knowledgeBaseId: null, result: null, abortController: null }),
+  reset: () => set({ steps: [], running: false, documentId: null, knowledgeBaseId: null, fileName: null, result: null, abortController: null }),
   setResult: (result) => set({ result }),
 }))
