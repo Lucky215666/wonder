@@ -7,6 +7,16 @@ interface PythonQAResponse {
   answer: string
   source_doc_ids: string[]
   source_chunks: string[]
+  answer_mode?: string
+  source_refs?: Array<{
+    doc_id: string
+    file_name: string
+    chunk_id?: string | null
+    chunk_index?: number | null
+    chunk_type: string
+    content: string
+    score?: number | null
+  }>
 }
 
 export function qaRoutes(storage: StorageService, python: PythonBackendClient) {
@@ -57,7 +67,7 @@ export function qaRoutes(storage: StorageService, python: PythonBackendClient) {
 
   app.post('/sessions/:id/messages', async (c) => {
     const id = c.req.param('id')
-    const body = await c.req.json<{ question: string }>()
+    const body = await c.req.json<{ question: string; mentionedDocIds?: string[] }>()
     if (!body.question?.trim()) return c.json({ error: 'Question is required' }, 400)
 
     const session = storage.getQASession(id)
@@ -107,6 +117,12 @@ export function qaRoutes(storage: StorageService, python: PythonBackendClient) {
       }
     }
 
+    // Override scope with mentioned doc IDs for this message only
+    if (body.mentionedDocIds && body.mentionedDocIds.length > 0) {
+      pythonBody.mentioned_doc_ids = body.mentionedDocIds
+      pythonBody.doc_ids = body.mentionedDocIds
+    }
+
     // Build conversation history (last 10 messages)
     const history = storage.getQAMessagesBySessionId(id)
     const recentHistory = history.slice(-10).map(m => ({ role: m.role, content: m.content }))
@@ -118,7 +134,12 @@ export function qaRoutes(storage: StorageService, python: PythonBackendClient) {
 
       // Save assistant message
       const assistantMsgId = randomUUID()
-      const sources = JSON.stringify({ docIds: result.source_doc_ids, chunks: result.source_chunks })
+      const sources = JSON.stringify({
+        docIds: result.source_doc_ids,
+        chunks: result.source_chunks,
+        refs: result.source_refs,
+        answerMode: result.answer_mode,
+      })
       storage.addQAMessage({ id: assistantMsgId, session_id: id, role: 'assistant', content: result.answer, sources })
 
       // Update session updated_at
@@ -126,7 +147,17 @@ export function qaRoutes(storage: StorageService, python: PythonBackendClient) {
 
       return c.json({
         userMessage: { id: userMsgId, role: 'user', content: body.question.trim() },
-        assistantMessage: { id: assistantMsgId, role: 'assistant', content: result.answer, sources: { docIds: result.source_doc_ids, chunks: result.source_chunks } },
+        assistantMessage: {
+          id: assistantMsgId,
+          role: 'assistant',
+          content: result.answer,
+          sources: {
+            docIds: result.source_doc_ids,
+            chunks: result.source_chunks,
+            refs: result.source_refs,
+            answerMode: result.answer_mode,
+          },
+        },
       })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)

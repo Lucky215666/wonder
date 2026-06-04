@@ -392,6 +392,145 @@ describe('qaRoutes', () => {
     ])
   })
 
+  // ── mentionedDocIds tests ────────────────────────────────────────
+
+  it('mentionedDocIds overrides session scope for the current message', async () => {
+    const storage = createMockStorage({
+      getQASession: vi.fn(() => ({
+        id: 's1', title: 'Test', scope_type: 'document', scope_ids: '["doc1"]',
+        created_at: '2024-01-01', updated_at: '2024-01-01',
+      })),
+      getQAMessagesBySessionId: vi.fn(() => []),
+    })
+    const python = createMockPython()
+    const app = new Hono()
+    app.route('/api/qa', qaRoutes(storage as any, python as any))
+
+    await app.request('/api/qa/sessions/s1/messages', {
+      method: 'POST',
+      body: JSON.stringify({ question: 'test', mentionedDocIds: ['doc-mentioned'] }),
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+    const callArg = (python.post as any).mock.calls[0][1]
+    expect(callArg.mentioned_doc_ids).toEqual(['doc-mentioned'])
+    expect(callArg.doc_ids).toEqual(['doc-mentioned'])
+    // Session scope_ids must NOT be mutated
+    expect(storage.updateQASession).not.toHaveBeenCalledWith('s1', expect.objectContaining({ scope_ids: expect.any(String) }))
+  })
+
+  it('one mentioned paper sends strict single-doc scope', async () => {
+    const storage = createMockStorage({
+      getQASession: vi.fn(() => ({
+        id: 's1', title: 'Test', scope_type: 'all', scope_ids: '[]',
+        created_at: '2024-01-01', updated_at: '2024-01-01',
+      })),
+      getQAMessagesBySessionId: vi.fn(() => []),
+    })
+    const python = createMockPython()
+    const app = new Hono()
+    app.route('/api/qa', qaRoutes(storage as any, python as any))
+
+    await app.request('/api/qa/sessions/s1/messages', {
+      method: 'POST',
+      body: JSON.stringify({ question: 'test', mentionedDocIds: ['doc-1'] }),
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+    const callArg = (python.post as any).mock.calls[0][1]
+    expect(callArg.mentioned_doc_ids).toEqual(['doc-1'])
+    expect(callArg.doc_ids).toEqual(['doc-1'])
+  })
+
+  it('multiple mentioned papers sends strict compare scope', async () => {
+    const storage = createMockStorage({
+      getQASession: vi.fn(() => ({
+        id: 's1', title: 'Test', scope_type: 'all', scope_ids: '[]',
+        created_at: '2024-01-01', updated_at: '2024-01-01',
+      })),
+      getQAMessagesBySessionId: vi.fn(() => []),
+    })
+    const python = createMockPython()
+    const app = new Hono()
+    app.route('/api/qa', qaRoutes(storage as any, python as any))
+
+    await app.request('/api/qa/sessions/s1/messages', {
+      method: 'POST',
+      body: JSON.stringify({ question: 'test', mentionedDocIds: ['doc-1', 'doc-2'] }),
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+    const callArg = (python.post as any).mock.calls[0][1]
+    expect(callArg.mentioned_doc_ids).toEqual(['doc-1', 'doc-2'])
+    expect(callArg.doc_ids).toEqual(['doc-1', 'doc-2'])
+  })
+
+  it('no mentions preserves existing session scope behavior', async () => {
+    const storage = createMockStorage({
+      getQASession: vi.fn(() => ({
+        id: 's1', title: 'Test', scope_type: 'all', scope_ids: '[]',
+        created_at: '2024-01-01', updated_at: '2024-01-01',
+      })),
+      getQAMessagesBySessionId: vi.fn(() => []),
+    })
+    const python = createMockPython()
+    const app = new Hono()
+    app.route('/api/qa', qaRoutes(storage as any, python as any))
+
+    await app.request('/api/qa/sessions/s1/messages', {
+      method: 'POST',
+      body: JSON.stringify({ question: 'test' }),
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+    const callArg = (python.post as any).mock.calls[0][1]
+    expect(callArg.mentioned_doc_ids).toBeUndefined()
+  })
+
+  it('sources persist with both existing and new response fields', async () => {
+    const mockRefs = [
+      { doc_id: 'doc-1', file_name: 'paper.pdf', chunk_id: 'c1', chunk_index: 0, chunk_type: 'text', content: 'some text', score: 0.95 },
+    ]
+    const storage = createMockStorage({
+      getQASession: vi.fn(() => ({
+        id: 's1', title: 'Test', scope_type: 'all', scope_ids: '[]',
+        created_at: '2024-01-01', updated_at: '2024-01-01',
+      })),
+      getQAMessagesBySessionId: vi.fn(() => []),
+    })
+    const python = createMockPython({
+      post: vi.fn(async () => ({
+        answer: 'detailed answer',
+        source_doc_ids: ['doc-1'],
+        source_chunks: ['chunk-1'],
+        answer_mode: 'cite',
+        source_refs: mockRefs,
+      })),
+    })
+    const app = new Hono()
+    app.route('/api/qa', qaRoutes(storage as any, python as any))
+
+    const res = await app.request('/api/qa/sessions/s1/messages', {
+      method: 'POST',
+      body: JSON.stringify({ question: 'test' }),
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+    // Verify stored sources JSON includes new fields
+    const addMsgCalls = (storage.addQAMessage as any).mock.calls
+    const assistantCall = addMsgCalls.find((c: any) => c[0].role === 'assistant')
+    const storedSources = JSON.parse(assistantCall[0].sources)
+    expect(storedSources.docIds).toEqual(['doc-1'])
+    expect(storedSources.chunks).toEqual(['chunk-1'])
+    expect(storedSources.refs).toEqual(mockRefs)
+    expect(storedSources.answerMode).toBe('cite')
+
+    // Verify response includes new fields
+    const body = await res.json()
+    expect(body.assistantMessage.sources.refs).toEqual(mockRefs)
+    expect(body.assistantMessage.sources.answerMode).toBe('cite')
+  })
+
   // ── Python failure handling tests ─────────────────────────────────
 
   it('POST /sessions/:id/messages returns 503 when Python backend fails', async () => {
