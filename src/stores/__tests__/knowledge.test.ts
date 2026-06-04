@@ -130,4 +130,104 @@ describe('useKnowledgeStore', () => {
       expect(mockApi.get).toHaveBeenCalledWith('/api/knowledge-bases')
     })
   })
+
+  describe('research cards', () => {
+    beforeEach(() => {
+      useKnowledgeStore.setState({
+        researchCards: [],
+        researchCardsLoading: false,
+        researchCardFilters: {},
+      })
+    })
+
+    it('loadResearchCards loads cards for selected knowledge base', async () => {
+      const cards = [{ id: 'card1', knowledgeBaseId: 'kb1', knowledgeType: 'method' }]
+      mockApi.get.mockResolvedValueOnce(cards)
+
+      await useKnowledgeStore.getState().loadResearchCards('kb1', { knowledgeType: 'method' })
+
+      expect(mockApi.get).toHaveBeenCalledWith('/api/research-cards/knowledge-base/kb1?knowledgeType=method')
+      expect(useKnowledgeStore.getState().researchCards).toEqual(cards)
+      expect(useKnowledgeStore.getState().researchCardsLoading).toBe(false)
+      expect(useKnowledgeStore.getState().researchCardFilters).toEqual({ knowledgeType: 'method' })
+    })
+
+    it('loadResearchCards loads cards without filters', async () => {
+      mockApi.get.mockResolvedValueOnce([])
+
+      await useKnowledgeStore.getState().loadResearchCards('kb1')
+
+      expect(mockApi.get).toHaveBeenCalledWith('/api/research-cards/knowledge-base/kb1')
+      expect(useKnowledgeStore.getState().researchCards).toEqual([])
+    })
+
+    it('loadResearchCards handles multiple filters', async () => {
+      mockApi.get.mockResolvedValueOnce([])
+
+      await useKnowledgeStore.getState().loadResearchCards('kb1', { knowledgeType: 'finding', tag: 'ai' })
+
+      expect(mockApi.get).toHaveBeenCalledWith('/api/research-cards/knowledge-base/kb1?knowledgeType=finding&tag=ai')
+    })
+
+    it('loadResearchCards sets error on failure', async () => {
+      mockApi.get.mockRejectedValueOnce(new Error('network error'))
+
+      await useKnowledgeStore.getState().loadResearchCards('kb1')
+
+      expect(useKnowledgeStore.getState().researchCardsLoading).toBe(false)
+      expect(useKnowledgeStore.getState().error).toBe('network error')
+    })
+
+    it('updateResearchCard patches card and updates local state', async () => {
+      useKnowledgeStore.setState({
+        researchCards: [{ id: 'card1', coreClaims: ['old claim'], tags: [] }] as any,
+      })
+      mockApi.patch.mockResolvedValueOnce({})
+
+      await useKnowledgeStore.getState().updateResearchCard('card1', { coreClaims: ['new claim'] })
+
+      expect(mockApi.patch).toHaveBeenCalledWith('/api/research-cards/card1', { coreClaims: ['new claim'] })
+      expect(useKnowledgeStore.getState().researchCards[0].coreClaims).toEqual(['new claim'])
+    })
+
+    it('updateResearchCard throws on failure', async () => {
+      mockApi.patch.mockRejectedValueOnce(new Error('not found'))
+
+      await expect(useKnowledgeStore.getState().updateResearchCard('bad-id', {})).rejects.toThrow('not found')
+
+      expect(useKnowledgeStore.getState().error).toBe('not found')
+    })
+
+    it('archiveResearchCard removes card from local list', async () => {
+      useKnowledgeStore.setState({ researchCards: [{ id: 'card1' }] as any })
+      mockApi.delete.mockResolvedValueOnce({})
+
+      await useKnowledgeStore.getState().archiveResearchCard('card1')
+
+      expect(mockApi.delete).toHaveBeenCalledWith('/api/research-cards/card1')
+      expect(useKnowledgeStore.getState().researchCards).toHaveLength(0)
+    })
+
+    it('archiveResearchCard throws on failure', async () => {
+      useKnowledgeStore.setState({ researchCards: [{ id: 'card1' }] as any })
+      mockApi.delete.mockRejectedValueOnce(new Error('server error'))
+
+      await expect(useKnowledgeStore.getState().archiveResearchCard('card1')).rejects.toThrow('server error')
+
+      expect(useKnowledgeStore.getState().error).toBe('server error')
+      expect(useKnowledgeStore.getState().researchCards).toHaveLength(1)
+    })
+
+    it('selectKB clears research cards', () => {
+      useKnowledgeStore.setState({
+        researchCards: [{ id: 'card1' }] as any,
+        researchCardFilters: { knowledgeType: 'method' },
+      })
+
+      useKnowledgeStore.getState().selectKB('new-kb')
+
+      expect(useKnowledgeStore.getState().researchCards).toEqual([])
+      expect(useKnowledgeStore.getState().researchCardFilters).toEqual({})
+    })
+  })
 })

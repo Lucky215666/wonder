@@ -1,20 +1,33 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Card, Typography, Input, Button, List, Modal, Select, Space, Empty, Popconfirm, Tag, message, Spin } from 'antd'
+import { Card, Typography, Input, Button, List, Modal, Select, Space, Empty, Popconfirm, Tag, message, Spin, Alert } from 'antd'
 import {
   SendOutlined, DeleteOutlined, ExperimentOutlined,
   PlusOutlined, MessageOutlined, BookOutlined, FileTextOutlined,
   GlobalOutlined, LoadingOutlined, RobotOutlined, CloseOutlined,
+  WarningOutlined,
 } from '@ant-design/icons'
 import { useQAStore } from '../stores/qa'
 import { useConfigStore } from '../stores/config'
 import ChatMessage from '../components/ChatMessage'
 import ApiGuard from '../components/ApiGuard'
 import KBSelector from '../components/KBSelector'
+import type { ResearchCardDraft, KnowledgeType } from '../types/research-card'
 
 const SCOPE_OPTIONS = [
   { label: '知识库', value: 'knowledge_base', icon: <BookOutlined /> },
   { label: '指定文档', value: 'document', icon: <FileTextOutlined /> },
   { label: '全部', value: 'all', icon: <GlobalOutlined /> },
+]
+
+const KNOWLEDGE_TYPE_OPTIONS: { label: string; value: KnowledgeType }[] = [
+  { label: '方法', value: 'method' },
+  { label: '理论', value: 'theory' },
+  { label: '发现', value: 'finding' },
+  { label: '研究问题', value: 'research_question' },
+  { label: '研究空白', value: 'gap' },
+  { label: '局限性', value: 'limitation' },
+  { label: '写作素材', value: 'writing_material' },
+  { label: '其他', value: 'other' },
 ]
 
 export default function QA() {
@@ -28,11 +41,17 @@ export default function QA() {
   const listRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<any>(null)
 
+  const [cardModalOpen, setCardModalOpen] = useState(false)
+  const [cardDraft, setCardDraft] = useState<ResearchCardDraft | null>(null)
+  const [cardDraftLoading, setCardDraftLoading] = useState(false)
+  const [cardSaving, setCardSaving] = useState(false)
+
   const {
-    sessions, sessionsLoading, sessionId, messages, loading,
+    sessions, sessionsLoading, sessionId, sessionScope, messages, loading,
     mentionedDocs, mentionSearchResults, mentionSearchLoading,
     loadSessions, createSession, openSession, deleteSession, sendMessage, clear,
     searchMentions, addMention, removeMention,
+    draftResearchCard, saveResearchCard,
   } = useQAStore()
   const { config } = useConfigStore()
 
@@ -111,6 +130,45 @@ export default function QA() {
       setNewScopeIds([])
     } catch {
       message.error('创建会话失败，请重试')
+    }
+  }
+
+  const currentKbId = sessionScope.type === 'knowledge_base' ? sessionScope.ids[0] : undefined
+
+  const handleDraftCard = async (messageId: string) => {
+    try {
+      setCardDraftLoading(true)
+      const draft = await draftResearchCard(messageId, currentKbId)
+      setCardDraft(draft)
+      setCardModalOpen(true)
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '生成卡片草稿失败')
+    } finally {
+      setCardDraftLoading(false)
+    }
+  }
+
+  const handleSaveCard = async () => {
+    if (!cardDraft || !currentKbId) {
+      message.error('请先选择知识库会话再保存卡片')
+      return
+    }
+    try {
+      setCardSaving(true)
+      await saveResearchCard({ ...cardDraft, knowledgeBaseId: currentKbId })
+      message.success('已沉淀为研究卡片')
+      setCardModalOpen(false)
+      setCardDraft(null)
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '保存卡片失败')
+    } finally {
+      setCardSaving(false)
+    }
+  }
+
+  const updateCardDraft = <K extends keyof ResearchCardDraft>(key: K, value: ResearchCardDraft[K]) => {
+    if (cardDraft) {
+      setCardDraft({ ...cardDraft, [key]: value })
     }
   }
 
@@ -227,7 +285,14 @@ export default function QA() {
                     </div>
                   )}
                   {messages.map((msg) => (
-                    <ChatMessage key={msg.id} role={msg.role} content={msg.content} avatar={msg.role === 'user' ? config?.avatar : undefined} sources={msg.sources} />
+                    <ChatMessage
+                      key={msg.id}
+                      role={msg.role}
+                      content={msg.content}
+                      avatar={msg.role === 'user' ? config?.avatar : undefined}
+                      sources={msg.sources}
+                      onSaveResearchCard={msg.role === 'assistant' ? () => handleDraftCard(msg.id) : undefined}
+                    />
                   ))}
                   {loading && (
                     <div className="wonder-chat-msg wonder-chat-msg--assistant">
@@ -376,6 +441,111 @@ export default function QA() {
             </div>
           )}
         </div>
+      </Modal>
+
+      {/* Research card draft modal */}
+      <Modal
+        title="沉淀为研究卡片"
+        open={cardModalOpen}
+        onCancel={() => { setCardModalOpen(false); setCardDraft(null) }}
+        onOk={handleSaveCard}
+        okText="保存卡片"
+        cancelText="取消"
+        okButtonProps={{ loading: cardSaving, disabled: !cardDraft }}
+        width={640}
+      >
+        {cardDraftLoading ? (
+          <div style={{ textAlign: 'center', padding: 40 }}>
+            <Spin tip="正在生成卡片草稿..." />
+          </div>
+        ) : cardDraft ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 12 }}>
+            {cardDraft.noPaperEvidence && (
+              <Alert
+                type="warning"
+                showIcon
+                icon={<WarningOutlined />}
+                message="此回答无文献支撑，内容可能需要进一步验证"
+              />
+            )}
+
+            <div>
+              <Typography.Text type="secondary" style={{ fontSize: 13, marginBottom: 4, display: 'block' }}>核心主张（每行一条）</Typography.Text>
+              <Input.TextArea
+                rows={3}
+                value={cardDraft.coreClaims.join('\n')}
+                onChange={e => updateCardDraft('coreClaims', e.target.value.split('\n').filter(Boolean))}
+              />
+            </div>
+
+            <div>
+              <Typography.Text type="secondary" style={{ fontSize: 13, marginBottom: 4, display: 'block' }}>知识类型</Typography.Text>
+              <Select
+                value={cardDraft.knowledgeType}
+                onChange={v => updateCardDraft('knowledgeType', v)}
+                options={KNOWLEDGE_TYPE_OPTIONS}
+                style={{ width: '100%' }}
+              />
+            </div>
+
+            <div>
+              <Typography.Text type="secondary" style={{ fontSize: 13, marginBottom: 4, display: 'block' }}>标签</Typography.Text>
+              <Select
+                mode="tags"
+                value={cardDraft.tags}
+                onChange={v => updateCardDraft('tags', v)}
+                placeholder="输入标签后回车"
+                style={{ width: '100%' }}
+              />
+            </div>
+
+            <div>
+              <Typography.Text type="secondary" style={{ fontSize: 13, marginBottom: 4, display: 'block' }}>子方向</Typography.Text>
+              <Input
+                value={cardDraft.subDirection ?? ''}
+                onChange={e => updateCardDraft('subDirection', e.target.value || null)}
+                placeholder="可选"
+              />
+            </div>
+
+            <div>
+              <Typography.Text type="secondary" style={{ fontSize: 13, marginBottom: 4, display: 'block' }}>验证备注</Typography.Text>
+              <Input.TextArea
+                rows={2}
+                value={cardDraft.validationNotes}
+                onChange={e => updateCardDraft('validationNotes', e.target.value)}
+              />
+            </div>
+
+            <div>
+              <Typography.Text type="secondary" style={{ fontSize: 13, marginBottom: 4, display: 'block' }}>使用场景</Typography.Text>
+              <Select
+                mode="tags"
+                value={cardDraft.useCases}
+                onChange={v => updateCardDraft('useCases', v)}
+                placeholder="输入使用场景后回车"
+                style={{ width: '100%' }}
+              />
+            </div>
+
+            {cardDraft.evidenceRefs.length > 0 && (
+              <div>
+                <Typography.Text type="secondary" style={{ fontSize: 13, marginBottom: 4, display: 'block' }}>证据来源</Typography.Text>
+                <div style={{ maxHeight: 120, overflowY: 'auto', border: '1px solid var(--border-light, #d9d9d9)', borderRadius: 6, padding: '4px 0' }}>
+                  {cardDraft.evidenceRefs.map((ref, idx) => (
+                    <div key={ref.id || idx} style={{ padding: '4px 12px', fontSize: 12, borderBottom: idx < cardDraft.evidenceRefs.length - 1 ? '1px solid var(--border-light, #f0f0f0)' : 'none' }}>
+                      <FileTextOutlined style={{ marginRight: 4, color: 'var(--ink-ghost)' }} />
+                      {ref.fileName ?? '未知文件'}
+                      {ref.chunkIndex != null && <span style={{ color: 'var(--ink-ghost)', marginLeft: 4 }}>#{ref.chunkIndex}</span>}
+                      {ref.score != null && <span style={{ color: 'var(--ink-ghost)', marginLeft: 4 }}>{(ref.score * 100).toFixed(0)}%</span>}
+                      {ref.snippet && <span style={{ color: 'var(--ink-faint)', marginLeft: 4 }}>- {ref.snippet.slice(0, 80)}{ref.snippet.length > 80 ? '...' : ''}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : null}
       </Modal>
     </div>
     </ApiGuard>

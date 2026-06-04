@@ -165,4 +165,123 @@ describe('useQAStore', () => {
 
     expect(useQAStore.getState().sessionsError).toBe('not found')
   })
+
+  it('opens legacy qa session sources while research card fields exist', async () => {
+    mockApi.get.mockResolvedValueOnce({
+      id: 's1',
+      title: 'Test',
+      scope_type: 'knowledge_base',
+      scope_ids: '["kb1"]',
+      updated_at: '2024-01-01',
+      messages: [
+        {
+          id: 'm1',
+          role: 'assistant',
+          content: 'answer',
+          sources: JSON.stringify({
+            docIds: ['doc-1'],
+            chunks: ['chunk'],
+            refs: [
+              { doc_id: 'doc-1', file_name: 'paper.pdf', chunk_type: 'content', content: 'text', score: 0.9 },
+            ],
+            answerMode: 'rag_enhanced',
+          }),
+        },
+        {
+          id: 'm2',
+          role: 'assistant',
+          content: 'second answer',
+          sources: JSON.stringify({
+            docIds: [],
+            chunks: [],
+            refs: [
+              { item_type: 'research_card', card_id: 'card-1', doc_id: '', file_name: 'Research card', chunk_type: 'card', content: 'card content', score: 0.95 },
+            ],
+            answerMode: 'rag_enhanced',
+          }),
+        },
+      ],
+    })
+
+    await useQAStore.getState().openSession('s1')
+
+    const messages = useQAStore.getState().messages
+    expect(messages).toHaveLength(2)
+    // First message: paper ref only
+    expect(messages[0].sources?.docIds).toEqual(['doc-1'])
+    expect(messages[0].sources?.refs).toHaveLength(1)
+    expect(messages[0].sources?.refs?.[0].chunk_type).toBe('content')
+    expect(messages[0].sources?.answerMode).toBe('rag_enhanced')
+    // Second message: card ref (research card field exists in sources)
+    expect(messages[1].sources?.refs).toHaveLength(1)
+    expect(messages[1].sources?.refs?.[0].chunk_type).toBe('card')
+  })
+
+  it('draftResearchCard posts session and message id', async () => {
+    useQAStore.setState({ sessionId: 's1' } as any)
+    mockApi.post.mockResolvedValueOnce({
+      question: 'q',
+      coreClaims: ['claim'],
+      knowledgeType: 'method',
+      tags: ['rag'],
+    })
+
+    await useQAStore.getState().draftResearchCard('m1', 'kb1')
+
+    expect(mockApi.post).toHaveBeenCalledWith('/api/research-cards/draft-from-qa', {
+      sessionId: 's1',
+      messageId: 'm1',
+      knowledgeBaseId: 'kb1',
+    })
+  })
+
+  it('draftResearchCard normalizes snake_case response', async () => {
+    useQAStore.setState({ sessionId: 's1' } as any)
+    mockApi.post.mockResolvedValueOnce({
+      question: 'q',
+      core_claims: ['c1'],
+      knowledge_type: 'theory',
+      tags: [],
+      sub_direction: 'sub',
+      validation_notes: 'note',
+      use_cases: ['uc'],
+      linked_doc_ids: ['d1'],
+      answer_mode: 'rag_enhanced',
+      no_paper_evidence: true,
+      evidence_refs: [{ documentId: 'd1', fileName: 'f.pdf', chunkId: null, chunkIndex: null, chunkType: 'content', snippet: 's', score: 0.9 }],
+    })
+
+    const draft = await useQAStore.getState().draftResearchCard('m1')
+
+    expect(draft.coreClaims).toEqual(['c1'])
+    expect(draft.knowledgeType).toBe('theory')
+    expect(draft.noPaperEvidence).toBe(true)
+    expect(draft.evidenceRefs).toHaveLength(1)
+  })
+
+  it('draftResearchCard throws when no session', async () => {
+    useQAStore.setState({ sessionId: null } as any)
+
+    await expect(useQAStore.getState().draftResearchCard('m1')).rejects.toThrow('No QA session selected')
+  })
+
+  it('saveResearchCard posts reviewed draft', async () => {
+    const draft = {
+      knowledgeBaseId: 'kb1',
+      question: 'q',
+      coreClaims: ['claim'],
+      knowledgeType: 'method' as const,
+      tags: ['rag'],
+      subDirection: null,
+      validationNotes: 'verify',
+      useCases: ['review'],
+      linkedDocIds: ['doc1'],
+      noPaperEvidence: false,
+      evidenceRefs: [],
+    }
+
+    await useQAStore.getState().saveResearchCard(draft)
+
+    expect(mockApi.post).toHaveBeenCalledWith('/api/research-cards', draft)
+  })
 })

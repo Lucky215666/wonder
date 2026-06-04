@@ -57,6 +57,10 @@ class StorageManager:
         }
         collection.delete(where=where)
 
+    def delete_where(self, where: Dict[str, Any], collection_name: Optional[str] = None):
+        collection = self.get_collection(collection_name or "documents")
+        collection.delete(where=where)
+
     def close(self):
         """关闭连接"""
         pass

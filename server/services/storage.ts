@@ -184,6 +184,54 @@ export interface DocumentVectorIndexRow {
   updated_at: string
 }
 
+export interface ResearchCardRow {
+  id: string
+  knowledge_base_id: string
+  question: string
+  core_claims: string
+  knowledge_type: string
+  tags: string
+  sub_direction: string | null
+  validation_notes: string
+  use_cases: string
+  linked_doc_ids: string
+  answer_mode: string | null
+  source_message_id: string | null
+  status: string
+  no_paper_evidence: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ResearchCardEvidenceRefRow {
+  id: string
+  card_id: string
+  document_id: string | null
+  file_name: string | null
+  chunk_id: string | null
+  chunk_index: number | null
+  chunk_type: string
+  snippet: string
+  score: number | null
+  created_at: string
+}
+
+export interface ResearchCardVectorIndexRow {
+  id: string
+  card_id: string
+  knowledge_base_id: string
+  backend: string
+  collection_name: string
+  embedding_provider: string | null
+  embedding_model: string | null
+  embedding_dimensions: number | null
+  status: string
+  error: string | null
+  indexed_at: string | null
+  created_at: string
+  updated_at: string
+}
+
 // ── StorageService ──────────────────────────────────────────────────────
 
 export class StorageService {
@@ -846,6 +894,274 @@ export class StorageService {
   getQAMessagesBySessionId(sessionId: string): QAMessageRow[] {
     return this.db.prepare('SELECT * FROM qa_messages WHERE session_id = ? ORDER BY created_at ASC')
       .all(sessionId) as QAMessageRow[]
+  }
+
+  // ── Research Card methods ──────────────────────────────────────────────
+
+  createResearchCard(card: {
+    id: string; knowledgeBaseId: string; question: string; coreClaims: string;
+    knowledgeType: string; tags: string; subDirection?: string | null;
+    validationNotes: string; useCases: string; linkedDocIds: string;
+    answerMode?: string | null; sourceMessageId?: string | null;
+    status?: string; noPaperEvidence: boolean;
+  }) {
+    this.db.prepare(`
+      INSERT INTO research_cards
+        (id, knowledge_base_id, question, core_claims, knowledge_type, tags,
+         sub_direction, validation_notes, use_cases, linked_doc_ids,
+         answer_mode, source_message_id, status, no_paper_evidence)
+      VALUES (@id, @knowledgeBaseId, @question, @coreClaims, @knowledgeType, @tags,
+              @subDirection, @validationNotes, @useCases, @linkedDocIds,
+              @answerMode, @sourceMessageId, @status, @noPaperEvidence)
+    `).run({
+      id: card.id,
+      knowledgeBaseId: card.knowledgeBaseId,
+      question: card.question,
+      coreClaims: card.coreClaims,
+      knowledgeType: card.knowledgeType,
+      tags: card.tags,
+      subDirection: card.subDirection ?? null,
+      validationNotes: card.validationNotes,
+      useCases: card.useCases,
+      linkedDocIds: card.linkedDocIds,
+      answerMode: card.answerMode ?? null,
+      sourceMessageId: card.sourceMessageId ?? null,
+      status: card.status ?? 'saved',
+      noPaperEvidence: card.noPaperEvidence ? 1 : 0,
+    })
+  }
+
+  createResearchCardWithRefs(card: {
+    id: string; knowledgeBaseId: string; question: string; coreClaims: string;
+    knowledgeType: string; tags: string; subDirection?: string | null;
+    validationNotes: string; useCases: string; linkedDocIds: string;
+    answerMode?: string | null; sourceMessageId?: string | null;
+    status?: string; noPaperEvidence: boolean;
+  }, refs: Array<{
+    id: string; documentId?: string | null; fileName?: string | null;
+    chunkId?: string | null; chunkIndex?: number | null; chunkType?: string;
+    snippet: string; score?: number | null;
+  }>) {
+    const insertCardStmt = this.db.prepare(`
+      INSERT INTO research_cards
+        (id, knowledge_base_id, question, core_claims, knowledge_type, tags,
+         sub_direction, validation_notes, use_cases, linked_doc_ids,
+         answer_mode, source_message_id, status, no_paper_evidence)
+      VALUES (@id, @knowledgeBaseId, @question, @coreClaims, @knowledgeType, @tags,
+              @subDirection, @validationNotes, @useCases, @linkedDocIds,
+              @answerMode, @sourceMessageId, @status, @noPaperEvidence)
+    `)
+    const deleteRefsStmt = this.db.prepare('DELETE FROM research_card_evidence_refs WHERE card_id = ?')
+    const insertRefStmt = this.db.prepare(`
+      INSERT INTO research_card_evidence_refs
+        (id, card_id, document_id, file_name, chunk_id, chunk_index, chunk_type, snippet, score)
+      VALUES (@id, @cardId, @documentId, @fileName, @chunkId, @chunkIndex, @chunkType, @snippet, @score)
+    `)
+
+    const tx = this.db.transaction(() => {
+      insertCardStmt.run({
+        id: card.id,
+        knowledgeBaseId: card.knowledgeBaseId,
+        question: card.question,
+        coreClaims: card.coreClaims,
+        knowledgeType: card.knowledgeType,
+        tags: card.tags,
+        subDirection: card.subDirection ?? null,
+        validationNotes: card.validationNotes,
+        useCases: card.useCases,
+        linkedDocIds: card.linkedDocIds,
+        answerMode: card.answerMode ?? null,
+        sourceMessageId: card.sourceMessageId ?? null,
+        status: card.status ?? 'saved',
+        noPaperEvidence: card.noPaperEvidence ? 1 : 0,
+      })
+
+      deleteRefsStmt.run(card.id)
+
+      for (const ref of refs) {
+        insertRefStmt.run({
+          id: ref.id,
+          cardId: card.id,
+          documentId: ref.documentId ?? null,
+          fileName: ref.fileName ?? null,
+          chunkId: ref.chunkId ?? null,
+          chunkIndex: ref.chunkIndex ?? null,
+          chunkType: ref.chunkType ?? 'content',
+          snippet: ref.snippet,
+          score: ref.score ?? null,
+        })
+      }
+    })
+    tx()
+  }
+
+  replaceResearchCardEvidenceRefs(cardId: string, refs: Array<{
+    id: string; documentId?: string | null; fileName?: string | null;
+    chunkId?: string | null; chunkIndex?: number | null; chunkType?: string;
+    snippet: string; score?: number | null;
+  }>) {
+    const deleteStmt = this.db.prepare('DELETE FROM research_card_evidence_refs WHERE card_id = ?')
+    const insertStmt = this.db.prepare(`
+      INSERT INTO research_card_evidence_refs
+        (id, card_id, document_id, file_name, chunk_id, chunk_index, chunk_type, snippet, score)
+      VALUES (@id, @cardId, @documentId, @fileName, @chunkId, @chunkIndex, @chunkType, @snippet, @score)
+    `)
+
+    const tx = this.db.transaction(() => {
+      deleteStmt.run(cardId)
+      for (const ref of refs) {
+        insertStmt.run({
+          id: ref.id,
+          cardId,
+          documentId: ref.documentId ?? null,
+          fileName: ref.fileName ?? null,
+          chunkId: ref.chunkId ?? null,
+          chunkIndex: ref.chunkIndex ?? null,
+          chunkType: ref.chunkType ?? 'content',
+          snippet: ref.snippet,
+          score: ref.score ?? null,
+        })
+      }
+    })
+    tx()
+  }
+
+  getResearchCard(id: string): ResearchCardRow | undefined {
+    return this.db.prepare('SELECT * FROM research_cards WHERE id = ?').get(id) as ResearchCardRow | undefined
+  }
+
+  getResearchCardEvidenceRefs(cardId: string): ResearchCardEvidenceRefRow[] {
+    return this.db.prepare(
+      'SELECT * FROM research_card_evidence_refs WHERE card_id = ? ORDER BY created_at'
+    ).all(cardId) as ResearchCardEvidenceRefRow[]
+  }
+
+  listResearchCards(filters: { knowledgeBaseId: string; status?: string; knowledgeType?: string; tag?: string; documentId?: string }): ResearchCardRow[] {
+    const conditions: string[] = ['rc.knowledge_base_id = ?']
+    const values: unknown[] = [filters.knowledgeBaseId]
+
+    // Default to 'saved' unless explicit status is passed
+    if (filters.status) {
+      conditions.push('rc.status = ?')
+      values.push(filters.status)
+    } else {
+      conditions.push("rc.status = 'saved'")
+    }
+
+    if (filters.knowledgeType) {
+      conditions.push('rc.knowledge_type = ?')
+      values.push(filters.knowledgeType)
+    }
+
+    if (filters.tag) {
+      conditions.push('rc.tags LIKE ?')
+      values.push(`%${filters.tag}%`)
+    }
+
+    // Filter by document ID via evidence refs join
+    if (filters.documentId) {
+      conditions.push(`
+        EXISTS (
+          SELECT 1 FROM research_card_evidence_refs ref
+          WHERE ref.card_id = rc.id AND ref.document_id = ?
+        ) OR rc.linked_doc_ids LIKE ?
+      `)
+      values.push(filters.documentId, `%${filters.documentId}%`)
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+    return this.db.prepare(`
+      SELECT rc.* FROM research_cards rc
+      ${where}
+      ORDER BY rc.created_at DESC
+    `).all(...values) as ResearchCardRow[]
+  }
+
+  updateResearchCard(id: string, updates: {
+    coreClaims?: string; knowledgeType?: string; tags?: string;
+    subDirection?: string | null; validationNotes?: string; useCases?: string;
+    linkedDocIds?: string; status?: string; noPaperEvidence?: boolean;
+  }) {
+    const fields: string[] = []
+    const values: unknown[] = []
+
+    if (updates.coreClaims !== undefined) { fields.push('core_claims = ?'); values.push(updates.coreClaims) }
+    if (updates.knowledgeType !== undefined) { fields.push('knowledge_type = ?'); values.push(updates.knowledgeType) }
+    if (updates.tags !== undefined) { fields.push('tags = ?'); values.push(updates.tags) }
+    if (updates.subDirection !== undefined) { fields.push('sub_direction = ?'); values.push(updates.subDirection) }
+    if (updates.validationNotes !== undefined) { fields.push('validation_notes = ?'); values.push(updates.validationNotes) }
+    if (updates.useCases !== undefined) { fields.push('use_cases = ?'); values.push(updates.useCases) }
+    if (updates.linkedDocIds !== undefined) { fields.push('linked_doc_ids = ?'); values.push(updates.linkedDocIds) }
+    if (updates.status !== undefined) { fields.push('status = ?'); values.push(updates.status) }
+    if (updates.noPaperEvidence !== undefined) { fields.push('no_paper_evidence = ?'); values.push(updates.noPaperEvidence ? 1 : 0) }
+
+    if (fields.length === 0) return
+    fields.push("updated_at = datetime('now')")
+    values.push(id)
+    this.db.prepare(`UPDATE research_cards SET ${fields.join(', ')} WHERE id = ?`).run(...values)
+  }
+
+  archiveResearchCard(id: string) {
+    this.db.prepare("UPDATE research_cards SET status = 'archived', updated_at = datetime('now') WHERE id = ?").run(id)
+  }
+
+  upsertResearchCardVectorIndex(index: {
+    id: string; cardId: string; knowledgeBaseId: string;
+    backend: string; collectionName: string;
+    embeddingProvider?: string | null; embeddingModel?: string | null;
+    embeddingDimensions?: number | null; status: string; error?: string | null;
+  }) {
+    this.db.prepare(`
+      INSERT INTO research_card_vector_indexes
+        (id, card_id, knowledge_base_id, backend, collection_name,
+         embedding_provider, embedding_model, embedding_dimensions, status, error)
+      VALUES (@id, @cardId, @knowledgeBaseId, @backend, @collectionName,
+              @embeddingProvider, @embeddingModel, @embeddingDimensions, @status, @error)
+      ON CONFLICT(id) DO UPDATE SET
+        card_id=excluded.card_id, knowledge_base_id=excluded.knowledge_base_id,
+        backend=excluded.backend, collection_name=excluded.collection_name,
+        embedding_provider=COALESCE(excluded.embedding_provider, embedding_provider),
+        embedding_model=COALESCE(excluded.embedding_model, embedding_model),
+        embedding_dimensions=COALESCE(excluded.embedding_dimensions, embedding_dimensions),
+        status=excluded.status, error=excluded.error, updated_at=datetime('now')
+    `).run({
+      id: index.id,
+      cardId: index.cardId,
+      knowledgeBaseId: index.knowledgeBaseId,
+      backend: index.backend ?? 'chroma',
+      collectionName: index.collectionName,
+      embeddingProvider: index.embeddingProvider ?? null,
+      embeddingModel: index.embeddingModel ?? null,
+      embeddingDimensions: index.embeddingDimensions ?? null,
+      status: index.status ?? 'not_indexed',
+      error: index.error ?? null,
+    })
+  }
+
+  markResearchCardVectorIndexStatus(id: string, status: string, error?: string | null) {
+    this.db.prepare(`
+      UPDATE research_card_vector_indexes SET
+        status = ?, error = ?,
+        indexed_at = CASE WHEN ? = 'indexed' THEN datetime('now') ELSE indexed_at END,
+        updated_at = datetime('now')
+      WHERE id = ?
+    `).run(status, error ?? null, status, id)
+  }
+
+  getResearchCardVectorIndexes(cardId: string): ResearchCardVectorIndexRow[] {
+    return this.db.prepare(
+      'SELECT * FROM research_card_vector_indexes WHERE card_id = ? ORDER BY created_at'
+    ).all(cardId) as ResearchCardVectorIndexRow[]
+  }
+
+  getQAMessage(id: string): QAMessageRow | undefined {
+    return this.db.prepare('SELECT * FROM qa_messages WHERE id = ?').get(id) as QAMessageRow | undefined
+  }
+
+  getPreviousUserMessage(sessionId: string, beforeCreatedAt: string): QAMessageRow | undefined {
+    return this.db.prepare(
+      "SELECT * FROM qa_messages WHERE session_id = ? AND role = 'user' AND created_at < ? ORDER BY created_at DESC LIMIT 1"
+    ).get(sessionId, beforeCreatedAt) as QAMessageRow | undefined
   }
 
   // ── Lifecycle ───────────────────────────────────────────────────────

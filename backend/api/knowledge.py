@@ -8,6 +8,7 @@ from backend.core.embedding import EmbeddingClient
 from backend.core.storage import StorageManager
 from backend.core.providers.factory import create_chat_provider, create_embedding_provider
 from backend.rag.retriever import RAGRetriever
+from backend.rag.research_card_retriever import ResearchCardRetriever
 from backend.rag.indexer import DocumentIndexer, build_collection_name
 from backend.agents.orchestrator import Orchestrator
 from backend.agents.literature import LiteratureParserAgent
@@ -111,6 +112,7 @@ def get_orchestrator(chat_config: Optional[ChatConfig] = None, embedding_config:
         dimensions=emb.get("dimensions", 1536),
     )
     retriever = RAGRetriever(storage, embedding_client)
+    card_retriever = ResearchCardRetriever(storage, embedding_client)
 
     provider = _build_provider(chat_config)
 
@@ -122,7 +124,7 @@ def get_orchestrator(chat_config: Optional[ChatConfig] = None, embedding_config:
         "qa": QAAgent(model_name, provider=provider)
     }
 
-    return Orchestrator(agents=agents, retriever=retriever)
+    return Orchestrator(agents=agents, retriever=retriever, card_retriever=card_retriever)
 
 
 @router.post("/documents/gateway")

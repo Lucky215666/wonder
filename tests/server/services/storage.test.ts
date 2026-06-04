@@ -559,6 +559,220 @@ describe('StorageService', () => {
     expect(msg.sources).toBeNull()
   })
 
+  // ── Research Card tests ──────────────────────────────────────────────
+
+  it('should create and retrieve research card with evidence refs', () => {
+    storage.createKnowledgeBase({ id: 'kb1', name: 'KB' })
+    storage.upsertDocument({ id: 'doc1', fileName: 'paper.pdf' })
+    storage.createQASession({ id: 's1', title: 'QA' })
+    storage.addQAMessage({ id: 'm1', session_id: 's1', role: 'assistant', content: 'answer' })
+
+    storage.createResearchCard({
+      id: 'card1', knowledgeBaseId: 'kb1', question: 'q',
+      coreClaims: JSON.stringify(['claim']), knowledgeType: 'method',
+      tags: JSON.stringify(['rag']), validationNotes: 'verified',
+      useCases: JSON.stringify(['review']), linkedDocIds: JSON.stringify(['doc1']),
+      sourceMessageId: 'm1', noPaperEvidence: false,
+    })
+    storage.replaceResearchCardEvidenceRefs('card1', [{
+      id: 'ref1', documentId: 'doc1', fileName: 'paper.pdf',
+      chunkType: 'content', snippet: 'evidence', score: 0.9,
+    }])
+
+    expect(storage.getResearchCard('card1')!.knowledge_type).toBe('method')
+    expect(storage.getResearchCardEvidenceRefs('card1')).toHaveLength(1)
+  })
+
+  it('should create research card with refs in a single transaction', () => {
+    storage.createKnowledgeBase({ id: 'kb1', name: 'KB' })
+    storage.upsertDocument({ id: 'doc1', fileName: 'paper.pdf' })
+
+    storage.createResearchCardWithRefs({
+      id: 'card-tx', knowledgeBaseId: 'kb1', question: 'What is RAG?',
+      coreClaims: JSON.stringify(['claim1']), knowledgeType: 'method',
+      tags: JSON.stringify(['rag']), validationNotes: 'verified',
+      useCases: JSON.stringify(['review']), linkedDocIds: '[]', noPaperEvidence: false,
+    }, [
+      { id: 'ref-a', documentId: 'doc1', fileName: 'paper.pdf', chunkType: 'content', snippet: 'evidence A', score: 0.9 },
+      { id: 'ref-b', documentId: 'doc1', fileName: 'paper.pdf', chunkType: 'content', snippet: 'evidence B', score: 0.8 },
+    ])
+
+    const card = storage.getResearchCard('card-tx')!
+    expect(card).toBeDefined()
+    expect(card.question).toBe('What is RAG?')
+    expect(card.knowledge_type).toBe('method')
+
+    const refs = storage.getResearchCardEvidenceRefs('card-tx')
+    expect(refs).toHaveLength(2)
+    expect(refs[0].snippet).toBe('evidence A')
+    expect(refs[1].snippet).toBe('evidence B')
+  })
+
+  it('should create research card with refs when refs array is empty', () => {
+    storage.createKnowledgeBase({ id: 'kb1', name: 'KB' })
+
+    storage.createResearchCardWithRefs({
+      id: 'card-no-refs', knowledgeBaseId: 'kb1', question: 'q',
+      coreClaims: '[]', knowledgeType: 'method', tags: '[]',
+      validationNotes: '', useCases: '[]', linkedDocIds: '[]', noPaperEvidence: true,
+    }, [])
+
+    const card = storage.getResearchCard('card-no-refs')!
+    expect(card).toBeDefined()
+    expect(storage.getResearchCardEvidenceRefs('card-no-refs')).toHaveLength(0)
+  })
+
+  it('should list research cards filtered by knowledge base and status', () => {
+    storage.createKnowledgeBase({ id: 'kb1', name: 'KB1' })
+    storage.createKnowledgeBase({ id: 'kb2', name: 'KB2' })
+
+    storage.createResearchCard({
+      id: 'card1', knowledgeBaseId: 'kb1', question: 'q1',
+      coreClaims: '[]', knowledgeType: 'method', tags: '[]',
+      validationNotes: '', useCases: '[]', linkedDocIds: '[]', noPaperEvidence: false,
+    })
+    storage.createResearchCard({
+      id: 'card2', knowledgeBaseId: 'kb1', question: 'q2',
+      coreClaims: '[]', knowledgeType: 'finding', tags: '[]',
+      validationNotes: '', useCases: '[]', linkedDocIds: '[]',
+      status: 'draft', noPaperEvidence: false,
+    })
+    storage.createResearchCard({
+      id: 'card3', knowledgeBaseId: 'kb2', question: 'q3',
+      coreClaims: '[]', knowledgeType: 'method', tags: '[]',
+      validationNotes: '', useCases: '[]', linkedDocIds: '[]', noPaperEvidence: false,
+    })
+
+    // Default filter: status=saved, kb1
+    const saved = storage.listResearchCards({ knowledgeBaseId: 'kb1' })
+    expect(saved).toHaveLength(1)
+    expect(saved[0].id).toBe('card1')
+
+    // Explicit status=draft
+    const drafts = storage.listResearchCards({ knowledgeBaseId: 'kb1', status: 'draft' })
+    expect(drafts).toHaveLength(1)
+    expect(drafts[0].id).toBe('card2')
+
+    // Filter by knowledge type
+    const methods = storage.listResearchCards({ knowledgeBaseId: 'kb1', status: 'saved', knowledgeType: 'method' })
+    expect(methods).toHaveLength(1)
+
+    // kb2
+    const kb2Cards = storage.listResearchCards({ knowledgeBaseId: 'kb2' })
+    expect(kb2Cards).toHaveLength(1)
+  })
+
+  it('should update research card fields', () => {
+    storage.createKnowledgeBase({ id: 'kb1', name: 'KB' })
+    storage.createResearchCard({
+      id: 'card1', knowledgeBaseId: 'kb1', question: 'q',
+      coreClaims: '[]', knowledgeType: 'method', tags: '[]',
+      validationNotes: '', useCases: '[]', linkedDocIds: '[]', noPaperEvidence: false,
+    })
+
+    storage.updateResearchCard('card1', {
+      coreClaims: JSON.stringify(['updated claim']),
+      knowledgeType: 'finding',
+      status: 'archived',
+    })
+
+    const card = storage.getResearchCard('card1')!
+    expect(card.core_claims).toBe('["updated claim"]')
+    expect(card.knowledge_type).toBe('finding')
+    expect(card.status).toBe('archived')
+  })
+
+  it('should archive research card', () => {
+    storage.createKnowledgeBase({ id: 'kb1', name: 'KB' })
+    storage.createResearchCard({
+      id: 'card1', knowledgeBaseId: 'kb1', question: 'q',
+      coreClaims: '[]', knowledgeType: 'method', tags: '[]',
+      validationNotes: '', useCases: '[]', linkedDocIds: '[]', noPaperEvidence: false,
+    })
+
+    storage.archiveResearchCard('card1')
+    expect(storage.getResearchCard('card1')!.status).toBe('archived')
+  })
+
+  it('should upsert and retrieve research card vector index', () => {
+    storage.createKnowledgeBase({ id: 'kb1', name: 'KB' })
+    storage.createResearchCard({
+      id: 'card1', knowledgeBaseId: 'kb1', question: 'q',
+      coreClaims: '[]', knowledgeType: 'method', tags: '[]',
+      validationNotes: '', useCases: '[]', linkedDocIds: '[]', noPaperEvidence: false,
+    })
+
+    storage.upsertResearchCardVectorIndex({
+      id: 'vi1', cardId: 'card1', knowledgeBaseId: 'kb1',
+      backend: 'chroma', collectionName: 'cards',
+      status: 'indexing',
+    })
+
+    const indexes = storage.getResearchCardVectorIndexes('card1')
+    expect(indexes).toHaveLength(1)
+    expect(indexes[0].status).toBe('indexing')
+
+    storage.markResearchCardVectorIndexStatus('vi1', 'indexed')
+    const updated = storage.getResearchCardVectorIndexes('card1')
+    expect(updated[0].status).toBe('indexed')
+    expect(updated[0].indexed_at).not.toBeNull()
+  })
+
+  it('should replace evidence refs idempotently', () => {
+    storage.createKnowledgeBase({ id: 'kb1', name: 'KB' })
+    storage.upsertDocument({ id: 'doc1', fileName: 'a.pdf' })
+    storage.upsertDocument({ id: 'doc2', fileName: 'b.pdf' })
+    storage.createResearchCard({
+      id: 'card1', knowledgeBaseId: 'kb1', question: 'q',
+      coreClaims: '[]', knowledgeType: 'method', tags: '[]',
+      validationNotes: '', useCases: '[]', linkedDocIds: '[]', noPaperEvidence: false,
+    })
+
+    storage.replaceResearchCardEvidenceRefs('card1', [
+      { id: 'ref1', documentId: 'doc1', snippet: 's1' },
+    ])
+    expect(storage.getResearchCardEvidenceRefs('card1')).toHaveLength(1)
+
+    // Replace with different refs
+    storage.replaceResearchCardEvidenceRefs('card1', [
+      { id: 'ref2', documentId: 'doc2', snippet: 's2' },
+      { id: 'ref3', documentId: 'doc1', snippet: 's3' },
+    ])
+    const refs = storage.getResearchCardEvidenceRefs('card1')
+    expect(refs).toHaveLength(2)
+    expect(refs[0].id).toBe('ref2')
+  })
+
+  it('should return undefined for nonexistent research card', () => {
+    expect(storage.getResearchCard('nonexistent')).toBeUndefined()
+  })
+
+  it('should get QA message by id', () => {
+    storage.createQASession({ id: 's1', title: 'Test' })
+    storage.addQAMessage({ id: 'm1', session_id: 's1', role: 'user', content: 'hello' })
+    storage.addQAMessage({ id: 'm2', session_id: 's1', role: 'assistant', content: 'answer', sources: '{}' })
+
+    const msg = storage.getQAMessage('m2')
+    expect(msg).toBeDefined()
+    expect(msg!.role).toBe('assistant')
+    expect(msg!.content).toBe('answer')
+  })
+
+  it('should get previous user message in session', () => {
+    storage.createQASession({ id: 's1', title: 'Test' })
+    storage.addQAMessage({ id: 'm1', session_id: 's1', role: 'user', content: 'q1' })
+    db.prepare("UPDATE qa_messages SET created_at = '2024-01-01' WHERE id = 'm1'").run()
+    storage.addQAMessage({ id: 'm2', session_id: 's1', role: 'assistant', content: 'a1' })
+    db.prepare("UPDATE qa_messages SET created_at = '2024-01-02' WHERE id = 'm2'").run()
+    storage.addQAMessage({ id: 'm3', session_id: 's1', role: 'user', content: 'q2' })
+    db.prepare("UPDATE qa_messages SET created_at = '2024-01-03' WHERE id = 'm3'").run()
+
+    const prev = storage.getPreviousUserMessage('s1', '2024-01-02')
+    expect(prev).toBeDefined()
+    expect(prev!.id).toBe('m1')
+    expect(prev!.content).toBe('q1')
+  })
+
   // ── Migration tests ─────────────────────────────────────────────────
 
   describe('schema migrations', () => {
@@ -834,6 +1048,36 @@ describe('StorageService', () => {
       // PRAGMA foreign_key_check returns empty if all FKs are valid
       const violations = migratedDb.prepare('PRAGMA foreign_key_check').all() as any[]
       expect(violations).toHaveLength(0)
+    })
+
+    it('should create research card tables via migration', () => {
+      // Use StorageService.create which applies full schema.sql then runs migrations
+      const testDir = path.join(__dirname, 'migration-rc-test')
+      try {
+        const svc = StorageService.create(testDir)
+        const testDb = (svc as any).db as Database.Database
+
+        const tables = ['research_cards', 'research_card_evidence_refs', 'research_card_vector_indexes']
+        for (const table of tables) {
+          const row = testDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table)
+          expect(row).toBeTruthy()
+        }
+
+        // Verify migration 4 was recorded
+        const migration = testDb.prepare('SELECT * FROM schema_migrations WHERE version = 4').get() as any
+        expect(migration).toBeTruthy()
+        expect(migration.name).toBe('create_research_cards')
+
+        testDb.close()
+      } finally {
+        // Cleanup
+        const dbPath = path.join(testDir, 'wonder.db')
+        for (const suffix of ['', '-wal', '-shm']) {
+          const f = dbPath + suffix
+          if (fs.existsSync(f)) { try { fs.unlinkSync(f) } catch { /* ignore */ } }
+        }
+        if (fs.existsSync(testDir)) { try { fs.rmdirSync(testDir) } catch { /* ignore */ } }
+      }
     })
 
     it('should deterministically keep best candidate during duplicate resolution in migration 3', () => {

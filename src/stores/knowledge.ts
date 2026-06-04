@@ -1,6 +1,22 @@
 import { create } from 'zustand'
 import { api } from '../services/api'
 import type { KnowledgeBase } from '../types/analysis'
+import type { ResearchCardDraft, KnowledgeType } from '../types/research-card'
+
+export interface ResearchCard extends ResearchCardDraft {
+  id: string
+  knowledgeBaseId: string
+  status: 'draft' | 'saved' | 'archived'
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ResearchCardFilters {
+  knowledgeType?: KnowledgeType
+  tag?: string
+  documentId?: string
+  status?: string
+}
 
 interface KnowledgeState {
   // KB list
@@ -31,6 +47,14 @@ interface KnowledgeState {
   loadReadmeSuggestions: (kbId: string) => Promise<void>
   acceptSuggestion: (suggestionId: string) => Promise<void>
   rejectSuggestion: (suggestionId: string) => Promise<void>
+
+  // Research cards
+  researchCards: ResearchCard[]
+  researchCardsLoading: boolean
+  researchCardFilters: ResearchCardFilters
+  loadResearchCards: (kbId: string, filters?: ResearchCardFilters) => Promise<void>
+  updateResearchCard: (id: string, updates: Partial<ResearchCardDraft>) => Promise<void>
+  archiveResearchCard: (id: string) => Promise<void>
 
   // Legacy flat document list
   documents: unknown[]
@@ -106,7 +130,7 @@ export const useKnowledgeStore = create<KnowledgeState>((set, get) => ({
 
   // Selected KB
   selectedKBId: null,
-  selectKB: (id) => set({ selectedKBId: id, kbDocuments: [], readmeSuggestions: [] }),
+  selectKB: (id) => set({ selectedKBId: id, kbDocuments: [], readmeSuggestions: [], researchCards: [], researchCardFilters: {} }),
 
   // Documents in selected KB
   kbDocuments: [],
@@ -202,6 +226,53 @@ export const useKnowledgeStore = create<KnowledgeState>((set, get) => ({
       await api.post(`/api/knowledge-bases/readme-suggestions/${suggestionId}/reject`)
       set(state => ({
         readmeSuggestions: (state.readmeSuggestions as { id: string }[]).filter(s => s.id !== suggestionId),
+      }))
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      set({ error: msg })
+      throw err
+    }
+  },
+
+  // Research cards
+  researchCards: [],
+  researchCardsLoading: false,
+  researchCardFilters: {},
+  loadResearchCards: async (kbId, filters = {}) => {
+    set({ researchCardsLoading: true, researchCardFilters: filters })
+    const qs = new URLSearchParams()
+    if (filters.knowledgeType) qs.set('knowledgeType', filters.knowledgeType)
+    if (filters.tag) qs.set('tag', filters.tag)
+    if (filters.documentId) qs.set('documentId', filters.documentId)
+    if (filters.status) qs.set('status', filters.status)
+    try {
+      const cards = await api.get(`/api/research-cards/knowledge-base/${kbId}${qs.toString() ? `?${qs}` : ''}`)
+      set({ researchCards: cards as ResearchCard[], researchCardsLoading: false, error: null })
+    } catch (err) {
+      set({ researchCardsLoading: false, error: err instanceof Error ? err.message : String(err) })
+    }
+  },
+  updateResearchCard: async (id, updates) => {
+    try {
+      await api.patch(`/api/research-cards/${id}`, updates)
+      set(state => ({
+        researchCards: state.researchCards.map(c =>
+          c.id === id ? { ...c, ...updates, updatedAt: new Date().toISOString() } : c
+        ),
+        error: null,
+      }))
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      set({ error: msg })
+      throw err
+    }
+  },
+  archiveResearchCard: async (id) => {
+    try {
+      await api.delete(`/api/research-cards/${id}`)
+      set(state => ({
+        researchCards: state.researchCards.filter(c => c.id !== id),
+        error: null,
       }))
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
