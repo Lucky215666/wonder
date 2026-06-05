@@ -6,7 +6,7 @@ interface SourceRef {
   file_name: string
   chunk_id?: string | null
   chunk_index?: number | null
-  chunk_type: 'summary' | 'content'
+  chunk_type: 'summary' | 'content' | 'card'
   content: string
   score?: number | null
 }
@@ -30,9 +30,15 @@ interface Props {
 
 const ANSWER_MODE_LABELS: Record<AnswerMode, { label: string; color: string }> = {
   general: { label: '通用回答', color: 'default' },
-  rag_enhanced: { label: '基于知识库', color: 'blue' },
-  mentioned_docs: { label: '基于指定文档', color: 'cyan' },
-  compare_docs: { label: '文档对比', color: 'purple' },
+  rag_enhanced: { label: '知识库增强', color: 'blue' },
+  mentioned_docs: { label: '指定论文', color: 'green' },
+  compare_docs: { label: '多论文对比', color: 'purple' },
+}
+
+const SOURCE_TYPE_LABELS: Record<string, string> = {
+  card: '研究卡片',
+  summary: '论文摘要',
+  content: '正文片段',
 }
 
 export default function ChatMessage({ role, content, avatar, sources, onSaveResearchCard }: Props) {
@@ -70,6 +76,9 @@ export default function ChatMessage({ role, content, avatar, sources, onSaveRese
                   <div className="wonder-chat-source__label">
                     <FileTextOutlined style={{ marginRight: 4 }} />
                     {ref.file_name}
+                    {SOURCE_TYPE_LABELS[ref.chunk_type] && (
+                      <Tag style={{ marginLeft: 6, fontSize: 11 }}>{SOURCE_TYPE_LABELS[ref.chunk_type]}</Tag>
+                    )}
                     {ref.chunk_index != null && (
                       <span style={{ color: 'var(--ink-ghost)', marginLeft: 6 }}>
                         #{ref.chunk_index}
@@ -96,7 +105,7 @@ export default function ChatMessage({ role, content, avatar, sources, onSaveRese
             ) : sources ? (
               <div className="wonder-chat-source">
                 <div className="wonder-chat-source__text" style={{ color: 'var(--ink-faint)', fontStyle: 'italic' }}>
-                  无匹配的已索引来源
+                  {sources.answerMode === 'general' ? '未引用知识库来源' : '无匹配的已索引来源'}
                 </div>
               </div>
             ) : (
