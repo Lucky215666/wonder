@@ -8,6 +8,7 @@ interface PythonQAResponse {
   source_doc_ids: string[]
   source_chunks: string[]
   answer_mode?: string
+  evidence_status?: 'none' | 'weak' | 'reliable'
   source_refs?: Array<{
     doc_id: string
     file_name: string
@@ -150,6 +151,7 @@ export function qaRoutes(storage: StorageService, python: PythonBackendClient) {
         chunks: result.source_chunks,
         refs: result.source_refs,
         answerMode: result.answer_mode,
+        evidenceStatus: result.evidence_status,
       })
       storage.addQAMessage({ id: assistantMsgId, session_id: id, role: 'assistant', content: result.answer, sources })
 
@@ -167,6 +169,7 @@ export function qaRoutes(storage: StorageService, python: PythonBackendClient) {
             chunks: result.source_chunks,
             refs: result.source_refs,
             answerMode: result.answer_mode,
+            evidenceStatus: result.evidence_status,
           },
         },
       })

@@ -557,6 +557,72 @@ describe('qaRoutes', () => {
     expect(body.assistantMessage.sources.answerMode).toBe('cite')
   })
 
+  it('persists and returns evidenceStatus from Python response', async () => {
+    const storage = createMockStorage({
+      getQASession: vi.fn(() => ({
+        id: 's1', title: 'Test', scope_type: 'all', scope_ids: '[]',
+        created_at: '2024-01-01', updated_at: '2024-01-01',
+      })),
+      getQAMessagesBySessionId: vi.fn(() => []),
+    })
+    const python = createMockPython({
+      post: vi.fn(async () => ({
+        answer: 'a',
+        source_doc_ids: [],
+        source_chunks: [],
+        answer_mode: 'general',
+        evidence_status: 'none',
+        source_refs: [],
+      })),
+    })
+    const app = new Hono()
+    app.route('/api/qa', qaRoutes(storage as any, python as any))
+
+    const res = await app.request('/api/qa/sessions/s1/messages', {
+      method: 'POST',
+      body: JSON.stringify({ question: 'q' }),
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+    const body = await res.json()
+    expect(body.assistantMessage.sources.evidenceStatus).toBe('none')
+    const savedAssistant = storage.addQAMessage.mock.calls.find((call: any[]) => call[0].role === 'assistant')?.[0]
+    expect(JSON.parse(savedAssistant.sources).evidenceStatus).toBe('none')
+  })
+
+  it('persists and returns evidenceStatus "reliable"', async () => {
+    const storage = createMockStorage({
+      getQASession: vi.fn(() => ({
+        id: 's1', title: 'Test', scope_type: 'all', scope_ids: '[]',
+        created_at: '2024-01-01', updated_at: '2024-01-01',
+      })),
+      getQAMessagesBySessionId: vi.fn(() => []),
+    })
+    const python = createMockPython({
+      post: vi.fn(async () => ({
+        answer: 'detailed answer',
+        source_doc_ids: ['doc-1'],
+        source_chunks: ['chunk-1'],
+        answer_mode: 'cite',
+        evidence_status: 'reliable',
+        source_refs: [],
+      })),
+    })
+    const app = new Hono()
+    app.route('/api/qa', qaRoutes(storage as any, python as any))
+
+    const res = await app.request('/api/qa/sessions/s1/messages', {
+      method: 'POST',
+      body: JSON.stringify({ question: 'q' }),
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+    const body = await res.json()
+    expect(body.assistantMessage.sources.evidenceStatus).toBe('reliable')
+    const savedAssistant = storage.addQAMessage.mock.calls.find((call: any[]) => call[0].role === 'assistant')?.[0]
+    expect(JSON.parse(savedAssistant.sources).evidenceStatus).toBe('reliable')
+  })
+
   // ── Legacy Python response compatibility ────────────────────────────
 
   it('handles legacy Python response without answer_mode and source_refs', async () => {
@@ -590,6 +656,7 @@ describe('qaRoutes', () => {
     expect(body.assistantMessage.sources.chunks).toEqual(['chunk'])
     expect(body.assistantMessage.sources.answerMode).toBeUndefined()
     expect(body.assistantMessage.sources.refs).toBeUndefined()
+    expect(body.assistantMessage.sources.evidenceStatus).toBeUndefined()
   })
 
   // ── Python failure handling tests ─────────────────────────────────
