@@ -165,6 +165,11 @@ async def index_gateway_document(request: KnowledgeIndexRequest):
             embedding_provider=emb_provider_name,
             embedding_model=emb_model,
             embedding_dimensions=emb_dimensions,
+            paper_title=request.paper_title,
+            authors=request.authors or None,
+            year=request.year,
+            venue=request.venue,
+            abstract=request.abstract,
         )
         return {"doc_id": doc_id, "message": "Document indexed successfully"}
     except Exception as e:
