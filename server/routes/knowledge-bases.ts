@@ -14,7 +14,7 @@ function buildMetadataPayload(storage: StorageService, doc: any, chunks: string[
   const keywords = meta?.keywords ? JSON.parse(meta.keywords) : []
   return {
     file_name: doc.file_name,
-    file_path: doc.file_path,
+    file_path: doc.file_path ?? '',
     chunks,
     summary: doc.summary ?? '',
     analysis_result: {

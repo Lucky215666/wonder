@@ -136,6 +136,21 @@ def test_knowledge_index_request_metadata_fields_default_to_empty():
     assert index_req.metadata_status is None
 
 
+def test_knowledge_index_request_coerces_null_file_path_to_empty_string():
+    """Old Node builds may send null file_path; indexing should not reject it."""
+    index_req = KnowledgeIndexRequest(
+        doc_id="doc-1",
+        knowledge_base_id="kb-1",
+        file_name="paper.pdf",
+        file_path=None,
+        chunks=["chunk"],
+        summary="summary",
+        analysis_result={},
+    )
+
+    assert index_req.file_path == ""
+
+
 def test_health_alias_available():
     client = TestClient(app)
     res = client.get("/health")
