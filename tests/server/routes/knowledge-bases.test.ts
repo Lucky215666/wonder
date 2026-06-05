@@ -128,6 +128,33 @@ describe('knowledgeBaseRoutes - reindex', () => {
     }))
   })
 
+  it('sends an empty string file_path when stored file_path is null', async () => {
+    const { app, storage, python } = createApp()
+    storage.getDocument.mockReturnValueOnce({
+      id: 'doc-1',
+      file_name: 'test.pdf',
+      file_path: null,
+      file_type: 'pdf',
+      summary: 'Summary',
+      reading_card: 'Card',
+      relation_analysis: 'Relation',
+      writing_materials: 'Writing',
+      todo_list: 'Todo',
+      tags: null,
+      match_score: 85,
+      lifecycle_status: 'analyzed',
+      created_at: '2025-01-01',
+    })
+
+    await app.request('/api/knowledge-bases/kb-1/documents/doc-1/reindex', {
+      method: 'POST',
+    })
+
+    expect(python.post).toHaveBeenCalledWith('/api/knowledge/documents/gateway', expect.objectContaining({
+      file_path: '',
+    }))
+  })
+
   it('accepts a readme suggestion', async () => {
     const { app, storage } = createApp()
 
