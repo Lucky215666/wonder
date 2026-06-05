@@ -265,6 +265,60 @@ describe('useQAStore', () => {
     await expect(useQAStore.getState().draftResearchCard('m1')).rejects.toThrow('No QA session selected')
   })
 
+  it('searchMentions requests documents when query is empty', async () => {
+    mockApi.get.mockResolvedValueOnce([
+      { id: 'doc-1', fileName: 'paper.pdf', title: 'Paper Title', authors: 'A', year: 2024, knowledgeBaseId: 'kb1', indexedStatus: 'indexed' },
+    ])
+
+    await useQAStore.getState().searchMentions('', { knowledgeBaseId: 'kb1' })
+
+    expect(mockApi.get).toHaveBeenCalledWith('/api/knowledge/documents/search?q=&knowledgeBaseId=kb1&limit=20')
+    expect(useQAStore.getState().mentionSearchResults).toEqual([
+      expect.objectContaining({ id: 'doc-1', fileName: 'paper.pdf', title: 'Paper Title' }),
+    ])
+  })
+
+  it('searchMentions encodes non-empty query', async () => {
+    mockApi.get.mockResolvedValueOnce([])
+
+    await useQAStore.getState().searchMentions('attention model', { knowledgeBaseId: 'kb1' })
+
+    expect(mockApi.get).toHaveBeenCalledWith('/api/knowledge/documents/search?q=attention%20model&knowledgeBaseId=kb1&limit=20')
+  })
+
+  it('sendMessage clears mentions on success', async () => {
+    useQAStore.setState({
+      sessionId: 's1',
+      messages: [],
+      loading: false,
+      mentionedDocs: [{ id: 'doc-1', fileName: 'paper.pdf', title: 'Paper Title' }],
+    })
+    mockApi.post.mockResolvedValueOnce({
+      userMessage: { id: 'u1', role: 'user', content: 'q' },
+      assistantMessage: { id: 'a1', role: 'assistant', content: 'a' },
+    })
+
+    await useQAStore.getState().sendMessage('q', ['doc-1'])
+
+    expect(useQAStore.getState().mentionedDocs).toEqual([])
+  })
+
+  it('sendMessage preserves mentions on failure', async () => {
+    useQAStore.setState({
+      sessionId: 's1',
+      messages: [],
+      loading: false,
+      mentionedDocs: [{ id: 'doc-1', fileName: 'paper.pdf', title: 'Paper Title' }],
+    })
+    mockApi.post.mockRejectedValueOnce(new Error('network error'))
+
+    await expect(useQAStore.getState().sendMessage('q', ['doc-1'])).rejects.toThrow()
+
+    expect(useQAStore.getState().mentionedDocs).toEqual([
+      expect.objectContaining({ id: 'doc-1' }),
+    ])
+  })
+
   it('saveResearchCard posts reviewed draft', async () => {
     const draft = {
       knowledgeBaseId: 'kb1',

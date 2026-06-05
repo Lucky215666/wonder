@@ -37,6 +37,7 @@ export default function QA() {
   const [newScopeType, setNewScopeType] = useState('knowledge_base')
   const [newScopeIds, setNewScopeIds] = useState<string[]>([])
   const [mentionQuery, setMentionQuery] = useState('')
+  const [mentionActive, setMentionActive] = useState(false)
   const [showMentionPicker, setShowMentionPicker] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<any>(null)
@@ -55,6 +56,8 @@ export default function QA() {
   } = useQAStore()
   const { config } = useConfigStore()
 
+  const currentKbId = sessionScope.type === 'knowledge_base' ? sessionScope.ids[0] : undefined
+
   useEffect(() => { loadSessions() }, [loadSessions])
 
   useEffect(() => {
@@ -65,16 +68,16 @@ export default function QA() {
 
   // Debounced mention search
   useEffect(() => {
-    if (!mentionQuery) {
+    if (!mentionActive) {
       setShowMentionPicker(false)
       return
     }
     setShowMentionPicker(true)
     const timer = setTimeout(() => {
-      searchMentions(mentionQuery)
-    }, 300)
+      searchMentions(mentionQuery, { knowledgeBaseId: currentKbId })
+    }, 200)
     return () => clearTimeout(timer)
-  }, [mentionQuery, searchMentions])
+  }, [mentionActive, mentionQuery, currentKbId, searchMentions])
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value
@@ -86,21 +89,24 @@ export default function QA() {
       const afterAt = value.slice(atIndex + 1)
       // Only trigger if there's no space between @ and query (or query is empty)
       if (!afterAt.includes(' ')) {
+        setMentionActive(true)
         setMentionQuery(afterAt)
         return
       }
     }
+    setMentionActive(false)
     setMentionQuery('')
     setShowMentionPicker(false)
   }, [])
 
-  const handleSelectMention = useCallback((doc: { id: string; fileName: string }) => {
+  const handleSelectMention = useCallback((doc: { id: string; fileName: string; title?: string | null }) => {
     addMention(doc)
     // Remove @query from input
     const atIndex = input.lastIndexOf('@')
     if (atIndex >= 0) {
       setInput(input.slice(0, atIndex))
     }
+    setMentionActive(false)
     setMentionQuery('')
     setShowMentionPicker(false)
     inputRef.current?.focus()
@@ -113,9 +119,10 @@ export default function QA() {
     setInput('')
     try {
       await sendMessage(question, mentionedDocIds.length > 0 ? mentionedDocIds : undefined)
-      // mentions cleared by sendMessage on success
+      setMentionActive(false)
+      setMentionQuery('')
     } catch (err) {
-      // mentions preserved on failure
+      setInput(question)
       message.error(err instanceof Error ? err.message : '发送失败，请检查网络或 API 配置')
     }
   }
@@ -132,8 +139,6 @@ export default function QA() {
       message.error('创建会话失败，请重试')
     }
   }
-
-  const currentKbId = sessionScope.type === 'knowledge_base' ? sessionScope.ids[0] : undefined
 
   const handleDraftCard = async (messageId: string) => {
     try {
@@ -364,8 +369,29 @@ export default function QA() {
                             onMouseEnter={e => (e.currentTarget.style.background = 'var(--accent-ghost, #e6f4ff)')}
                             onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                           >
-                            <FileTextOutlined style={{ marginRight: 8, color: 'var(--ink-ghost)' }} />
-                            {doc.fileName}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <FileTextOutlined style={{ color: 'var(--ink-ghost)', flexShrink: 0 }} />
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <Typography.Text strong style={{ fontSize: 13 }} ellipsis>
+                                  {doc.title || doc.fileName}
+                                </Typography.Text>
+                                {doc.title && (
+                                  <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }} ellipsis>
+                                    {doc.fileName}
+                                  </Typography.Text>
+                                )}
+                                {(doc.authors || doc.year) && (
+                                  <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                                    {doc.authors}{doc.authors && doc.year ? ', ' : ''}{doc.year}
+                                  </Typography.Text>
+                                )}
+                              </div>
+                              {doc.indexedStatus && doc.indexedStatus !== 'indexed' && (
+                                <Tag color="warning" style={{ fontSize: 11, margin: 0 }}>
+                                  {doc.indexedStatus === 'indexing' ? '索引中' : doc.indexedStatus === 'failed' ? '索引失败' : doc.indexedStatus}
+                                </Tag>
+                              )}
+                            </div>
                           </div>
                         ))
                       ) : (

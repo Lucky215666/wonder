@@ -30,6 +30,15 @@ interface QAMessage {
 export interface MentionedDoc {
   id: string
   fileName: string
+  title?: string | null
+  authors?: string | null
+  year?: number | string | null
+  knowledgeBaseId?: string | null
+  indexedStatus?: string | null
+}
+
+interface MentionSearchContext {
+  knowledgeBaseId?: string | null
 }
 
 interface QASessionSummary {
@@ -57,7 +66,7 @@ interface QAState {
   mentionedDocs: MentionedDoc[]
   mentionSearchResults: MentionedDoc[]
   mentionSearchLoading: boolean
-  searchMentions: (query: string) => Promise<void>
+  searchMentions: (query: string, context?: MentionSearchContext) => Promise<void>
   addMention: (doc: MentionedDoc) => void
   removeMention: (docId: string) => void
   clearMentions: () => void
@@ -86,19 +95,15 @@ export const useQAStore = create<QAState>((set, get) => ({
   mentionSearchResults: [],
   mentionSearchLoading: false,
 
-  searchMentions: async (query) => {
-    if (!query.trim()) {
-      set({ mentionSearchResults: [], mentionSearchLoading: false })
-      return
-    }
+  searchMentions: async (query, context = {}) => {
     set({ mentionSearchLoading: true })
     try {
-      const docs = await api.get<Array<{ id: string; file_name: string | null }>>('/api/knowledge/documents')
-      const q = query.toLowerCase()
-      const results = docs
-        .filter(d => d.file_name && d.file_name.toLowerCase().includes(q))
-        .map(d => ({ id: d.id, fileName: d.file_name! }))
-      set({ mentionSearchResults: results, mentionSearchLoading: false })
+      const q = encodeURIComponent(query.trim())
+      let url = `/api/knowledge/documents/search?q=${q}`
+      if (context.knowledgeBaseId) url += `&knowledgeBaseId=${encodeURIComponent(context.knowledgeBaseId)}`
+      url += '&limit=20'
+      const docs = await api.get<MentionedDoc[]>(url)
+      set({ mentionSearchResults: docs, mentionSearchLoading: false })
     } catch {
       set({ mentionSearchResults: [], mentionSearchLoading: false })
     }
