@@ -73,6 +73,17 @@ export function qaRoutes(storage: StorageService, python: PythonBackendClient) {
     const session = storage.getQASession(id)
     if (!session) return c.json({ error: 'Session not found' }, 404)
 
+    // Validate mentioned document IDs
+    const mentionedDocIds = Array.from(new Set((body.mentionedDocIds || []).filter(Boolean)))
+    if (mentionedDocIds.length > 0) {
+      const allDocs = storage.listDocuments()
+      const existingIds = new Set(allDocs.map((doc: any) => doc.id))
+      const missing = mentionedDocIds.filter(docId => !existingIds.has(docId))
+      if (missing.length > 0) {
+        return c.json({ error: `Invalid mentioned document ids: ${missing.join(', ')}` }, 400)
+      }
+    }
+
     // Save user message
     const userMsgId = randomUUID()
     storage.addQAMessage({ id: userMsgId, session_id: id, role: 'user', content: body.question.trim() })

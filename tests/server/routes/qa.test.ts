@@ -394,6 +394,29 @@ describe('qaRoutes', () => {
 
   // ── mentionedDocIds tests ────────────────────────────────────────
 
+  it('returns 400 when a mentioned document does not exist', async () => {
+    const storage = createMockStorage({
+      getQASession: vi.fn(() => ({
+        id: 's1', title: 'Test', scope_type: 'knowledge_base', scope_ids: '["kb1"]',
+        created_at: '2024-01-01', updated_at: '2024-01-01',
+      })),
+      listDocuments: vi.fn(() => []),
+    })
+    const python = createMockPython()
+    const app = new Hono()
+    app.route('/api/qa', qaRoutes(storage as any, python as any))
+
+    const res = await app.request('/api/qa/sessions/s1/messages', {
+      method: 'POST',
+      body: JSON.stringify({ question: 'q', mentionedDocIds: ['missing-doc'] }),
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toContain('mentioned document')
+  })
+
   it('mentionedDocIds overrides session scope for the current message', async () => {
     const storage = createMockStorage({
       getQASession: vi.fn(() => ({
@@ -401,6 +424,7 @@ describe('qaRoutes', () => {
         created_at: '2024-01-01', updated_at: '2024-01-01',
       })),
       getQAMessagesBySessionId: vi.fn(() => []),
+      listDocuments: vi.fn(() => [{ id: 'doc-mentioned' }]),
     })
     const python = createMockPython()
     const app = new Hono()
@@ -426,6 +450,7 @@ describe('qaRoutes', () => {
         created_at: '2024-01-01', updated_at: '2024-01-01',
       })),
       getQAMessagesBySessionId: vi.fn(() => []),
+      listDocuments: vi.fn(() => [{ id: 'doc-1' }]),
     })
     const python = createMockPython()
     const app = new Hono()
@@ -449,6 +474,7 @@ describe('qaRoutes', () => {
         created_at: '2024-01-01', updated_at: '2024-01-01',
       })),
       getQAMessagesBySessionId: vi.fn(() => []),
+      listDocuments: vi.fn(() => [{ id: 'doc-1' }, { id: 'doc-2' }]),
     })
     const python = createMockPython()
     const app = new Hono()
