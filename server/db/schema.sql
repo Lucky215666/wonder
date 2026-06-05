@@ -282,3 +282,7 @@ CREATE INDEX IF NOT EXISTS idx_research_card_refs_card ON research_card_evidence
 CREATE INDEX IF NOT EXISTS idx_research_card_refs_doc ON research_card_evidence_refs(document_id);
 CREATE INDEX IF NOT EXISTS idx_research_card_vector_indexes_card ON research_card_vector_indexes(card_id);
 CREATE INDEX IF NOT EXISTS idx_research_card_vector_indexes_status ON research_card_vector_indexes(status);
+
+CREATE INDEX IF NOT EXISTS idx_document_metadata_title ON document_metadata(title);
+CREATE INDEX IF NOT EXISTS idx_document_metadata_year ON document_metadata(year);
+CREATE INDEX IF NOT EXISTS idx_document_metadata_status ON document_metadata(metadata_status);
