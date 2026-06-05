@@ -221,6 +221,13 @@ class KnowledgeIndexRequest(BaseModel):
     analysis_result: dict
     tags: List[str] = []
     embedding_config: Optional[NormalizedEmbeddingConfig] = None
+    paper_title: Optional[str] = None
+    authors: List[str] = []
+    year: Optional[int] = None
+    venue: Optional[str] = None
+    abstract: Optional[str] = None
+    keywords: List[str] = []
+    metadata_status: Optional[str] = None
 
 
 class ResearchCardIndexRequest(BaseModel):

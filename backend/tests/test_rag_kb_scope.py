@@ -54,14 +54,16 @@ def test_indexer_uses_ts_doc_id_and_kb_metadata():
 
     assert doc_id == "doc-1"
     assert storage.added["ids"] == [
+        "doc-1_kb-1_profile",
         "doc-1_kb-1_summary",
         "doc-1_kb-1_chunk_0",
         "doc-1_kb-1_chunk_1",
     ]
     assert storage.added["metadatas"][0]["knowledge_base_id"] == "kb-1"
-    assert storage.added["metadatas"][0]["chunk_type"] == "summary"
-    assert storage.added["metadatas"][1]["chunk_type"] == "content"
-    assert storage.added["metadatas"][1]["tags"] == "rag,agents"
+    assert storage.added["metadatas"][0]["chunk_type"] == "profile"
+    assert storage.added["metadatas"][1]["chunk_type"] == "summary"
+    assert storage.added["metadatas"][2]["chunk_type"] == "content"
+    assert storage.added["metadatas"][2]["tags"] == "rag,agents"
 
 
 def test_delete_document_can_scope_to_knowledge_base():
@@ -139,7 +141,7 @@ class SpyEmbedding:
 
 
 def test_indexer_calls_embedding_provider_with_expected_chunks():
-    """Indexing must call the embedding provider with [summary] + chunks."""
+    """Indexing must call the embedding provider with [profile, summary] + chunks."""
     spy = SpyEmbedding()
     storage = FakeStorage()
     indexer = DocumentIndexer(storage, spy)
@@ -155,7 +157,10 @@ def test_indexer_calls_embedding_provider_with_expected_chunks():
     )
 
     assert len(spy.calls) == 1
-    assert spy.calls[0] == ["the summary", "alpha", "beta", "gamma"]
+    # First text is the profile (includes title, file, analysis summary)
+    assert spy.calls[0][0].startswith("Title: test.txt")
+    assert spy.calls[0][1] == "the summary"
+    assert spy.calls[0][2:] == ["alpha", "beta", "gamma"]
 
 
 def test_indexer_stores_correct_vector_in_chroma():
@@ -174,8 +179,8 @@ def test_indexer_stores_correct_vector_in_chroma():
         analysis_result={},
     )
 
-    # summary embedding + 1 chunk embedding
-    assert storage.added["embeddings"] == [[0.5, 0.6, 0.7], [0.5, 0.6, 0.7]]
+    # profile embedding + summary embedding + 1 chunk embedding
+    assert storage.added["embeddings"] == [[0.5, 0.6, 0.7], [0.5, 0.6, 0.7], [0.5, 0.6, 0.7]]
 
 
 @pytest.fixture
@@ -343,16 +348,24 @@ def test_indexer_stores_index_id_and_chunk_id_in_metadata():
     )
 
     metas = storage.added["metadatas"]
-    # Summary entry
+    # Profile entry
+    assert metas[0]["chunk_type"] == "profile"
     assert metas[0]["index_id"] == "idx-1"
     assert metas[0]["chunk_id"].startswith("chunk-")
     assert metas[0]["embedding_model"] == "text-embedding-3-small"
     assert metas[0]["embedding_dimensions"] == 1536
-    # Chunk entry
+    # Summary entry
+    assert metas[1]["chunk_type"] == "summary"
     assert metas[1]["index_id"] == "idx-1"
     assert metas[1]["chunk_id"].startswith("chunk-")
     assert metas[1]["embedding_model"] == "text-embedding-3-small"
     assert metas[1]["embedding_dimensions"] == 1536
+    # Chunk entry
+    assert metas[2]["chunk_type"] == "content"
+    assert metas[2]["index_id"] == "idx-1"
+    assert metas[2]["chunk_id"].startswith("chunk-")
+    assert metas[2]["embedding_model"] == "text-embedding-3-small"
+    assert metas[2]["embedding_dimensions"] == 1536
 
 
 def test_indexer_passes_collection_name_to_storage():

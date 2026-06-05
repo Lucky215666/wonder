@@ -78,3 +78,41 @@ def test_document_deletion(test_storage, mock_embedding):
     )
 
     indexer.delete_document(doc_id, knowledge_base_id="kb-1")
+
+
+def test_document_indexing_writes_profile_summary_and_chunks(mock_embedding):
+    """Indexing must produce profile, summary, and content chunks in order."""
+    from backend.tests.test_rag_kb_scope import FakeStorage
+    storage = FakeStorage()
+    indexer = DocumentIndexer(storage, mock_embedding)
+
+    indexer.index_document(
+        doc_id="doc-1",
+        knowledge_base_id="kb-1",
+        file_name="paper.pdf",
+        file_path="/tmp/paper.pdf",
+        chunks=["chunk one"],
+        summary="summary",
+        analysis_result={},
+        tags=["rag"],
+        paper_title="Paper Title",
+        authors=["Author A"],
+        year=2024,
+        venue="ACL",
+    )
+
+    call = storage.added
+    # Profile chunk
+    assert call["metadatas"][0]["chunk_type"] == "profile"
+    assert call["metadatas"][0]["chunk_index"] == -1
+    assert call["metadatas"][0]["paper_title"] == "Paper Title"
+    assert call["documents"][0].startswith("Title: Paper Title")
+    assert "Authors: Author A" in call["documents"][0]
+    assert "Year: 2024" in call["documents"][0]
+    assert "Venue: ACL" in call["documents"][0]
+    # Summary chunk
+    assert call["metadatas"][1]["chunk_type"] == "summary"
+    assert call["documents"][1] == "summary"
+    # Content chunk
+    assert call["metadatas"][2]["chunk_type"] == "content"
+    assert call["documents"][2] == "chunk one"

@@ -6,6 +6,36 @@ from backend.core.embedding import EmbeddingClient
 from backend.core.storage import StorageManager
 
 
+def build_document_profile_text(
+    *,
+    file_name: str,
+    paper_title: str | None,
+    authors: list[str] | None,
+    year: int | None,
+    venue: str | None,
+    abstract: str | None,
+    summary: str,
+    tags: list[str] | None,
+) -> str:
+    parts = [
+        f"Title: {paper_title or file_name}",
+        f"File: {file_name}",
+    ]
+    if authors:
+        parts.append("Authors: " + ", ".join(authors))
+    if year:
+        parts.append(f"Year: {year}")
+    if venue:
+        parts.append(f"Venue: {venue}")
+    if tags:
+        parts.append("Tags: " + ", ".join(tags))
+    if abstract:
+        parts.append("Abstract:\n" + abstract)
+    if summary:
+        parts.append("Analysis Summary:\n" + summary)
+    return "\n\n".join(parts)
+
+
 def build_collection_name(provider: str, model: str, dimensions: int) -> str:
     """构建 Chroma collection 名称，格式: documents__{provider}__{model}__{dimensions}"""
     def normalize(value: str) -> str:
@@ -35,19 +65,54 @@ class DocumentIndexer:
         embedding_dimensions: Optional[int] = None,
         analysis_version: Optional[str] = None,
         chunk_ids: Optional[List[str]] = None,
+        paper_title: Optional[str] = None,
+        authors: Optional[List[str]] = None,
+        year: Optional[int] = None,
+        venue: Optional[str] = None,
+        abstract: Optional[str] = None,
     ) -> str:
         tags = tags or []
         created_at = datetime.now().isoformat()
 
-        texts_to_embed = [summary] + chunks
+        profile_text = build_document_profile_text(
+            file_name=file_name,
+            paper_title=paper_title,
+            authors=authors,
+            year=year,
+            venue=venue,
+            abstract=abstract,
+            summary=summary,
+            tags=tags,
+        )
+
+        texts_to_embed = [profile_text, summary] + chunks
         embeddings = self.embedding.embed(texts_to_embed)
 
-        # Generate chunk IDs if not provided
+        # Generate chunk IDs if not provided (profile + summary + chunks)
         if chunk_ids is None:
-            chunk_ids = [f"chunk-{uuid.uuid4()}" for _ in range(len(chunks) + 1)]
+            chunk_ids = [f"chunk-{uuid.uuid4()}" for _ in range(len(chunks) + 2)]
 
-        ids = [f"{doc_id}_{knowledge_base_id}_summary"]
+        # Profile entry (index -1)
+        ids = [f"{doc_id}_{knowledge_base_id}_profile"]
         metadatas = [{
+            "doc_id": doc_id,
+            "knowledge_base_id": knowledge_base_id,
+            "file_name": file_name,
+            "paper_title": paper_title or "",
+            "chunk_type": "profile",
+            "chunk_index": -1,
+            "tags": ",".join(tags),
+            "created_at": created_at,
+            "index_id": index_id or "",
+            "chunk_id": chunk_ids[0],
+            "embedding_model": embedding_model or "",
+            "embedding_dimensions": embedding_dimensions or 0,
+        }]
+        documents = [profile_text]
+
+        # Summary entry
+        ids.append(f"{doc_id}_{knowledge_base_id}_summary")
+        metadatas.append({
             "doc_id": doc_id,
             "knowledge_base_id": knowledge_base_id,
             "file_name": file_name,
@@ -56,11 +121,11 @@ class DocumentIndexer:
             "tags": ",".join(tags),
             "created_at": created_at,
             "index_id": index_id or "",
-            "chunk_id": chunk_ids[0],
+            "chunk_id": chunk_ids[1],
             "embedding_model": embedding_model or "",
             "embedding_dimensions": embedding_dimensions or 0,
-        }]
-        documents = [summary]
+        })
+        documents.append(summary)
 
         for i, chunk in enumerate(chunks):
             ids.append(f"{doc_id}_{knowledge_base_id}_chunk_{i}")
@@ -73,7 +138,7 @@ class DocumentIndexer:
                 "tags": ",".join(tags),
                 "created_at": created_at,
                 "index_id": index_id or "",
-                "chunk_id": chunk_ids[i + 1],
+                "chunk_id": chunk_ids[i + 2],
                 "embedding_model": embedding_model or "",
                 "embedding_dimensions": embedding_dimensions or 0,
             })

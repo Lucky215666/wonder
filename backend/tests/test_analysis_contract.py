@@ -88,6 +88,54 @@ def test_knowledge_index_request_preserves_analysis_result():
     assert index_req.embedding_config is None
 
 
+def test_knowledge_index_request_accepts_document_metadata_fields():
+    """KnowledgeIndexRequest must accept paper metadata fields from Node."""
+    index_req = KnowledgeIndexRequest(
+        doc_id="doc-1",
+        knowledge_base_id="kb-1",
+        file_name="paper.pdf",
+        chunks=["chunk one"],
+        summary="summary",
+        analysis_result={},
+        tags=["rag"],
+        paper_title="Attention Is All You Need",
+        authors=["Vaswani", "Shazeer"],
+        year=2017,
+        venue="NeurIPS",
+        abstract="The dominant sequence transduction models...",
+        keywords=["attention", "transformer"],
+        metadata_status="extracted",
+    )
+
+    assert index_req.paper_title == "Attention Is All You Need"
+    assert index_req.authors == ["Vaswani", "Shazeer"]
+    assert index_req.year == 2017
+    assert index_req.venue == "NeurIPS"
+    assert index_req.abstract == "The dominant sequence transduction models..."
+    assert index_req.keywords == ["attention", "transformer"]
+    assert index_req.metadata_status == "extracted"
+
+
+def test_knowledge_index_request_metadata_fields_default_to_empty():
+    """Metadata fields must default to None/empty when not provided."""
+    index_req = KnowledgeIndexRequest(
+        doc_id="doc-1",
+        knowledge_base_id="kb-1",
+        file_name="paper.pdf",
+        chunks=["chunk"],
+        summary="summary",
+        analysis_result={},
+    )
+
+    assert index_req.paper_title is None
+    assert index_req.authors == []
+    assert index_req.year is None
+    assert index_req.venue is None
+    assert index_req.abstract is None
+    assert index_req.keywords == []
+    assert index_req.metadata_status is None
+
+
 def test_health_alias_available():
     client = TestClient(app)
     res = client.get("/health")

@@ -150,6 +150,10 @@ export function knowledgeBaseRoutes(storage: StorageService, python: PythonBacke
         status: 'indexing',
       })
 
+      const meta = storage.getDocumentMetadata(docId)
+      const authors = meta?.authors ? JSON.parse(meta.authors) : []
+      const keywords = meta?.keywords ? JSON.parse(meta.keywords) : []
+
       python.post('/api/knowledge/documents/gateway', {
         doc_id: docId,
         knowledge_base_id: kbId,
@@ -169,6 +173,13 @@ export function knowledgeBaseRoutes(storage: StorageService, python: PythonBacke
           todo_list: doc.todo_list ?? '',
         },
         tags: doc.tags ? doc.tags.split(',').map(t => t.trim()).filter(Boolean) : [],
+        paper_title: meta?.title ?? doc.file_name,
+        authors,
+        year: meta?.year ?? null,
+        venue: meta?.venue ?? null,
+        abstract: meta?.abstract ?? doc.summary ?? '',
+        keywords,
+        metadata_status: meta?.metadata_status ?? 'missing',
       }).then(() => {
         storage.updateDocumentLifecycle(docId, 'indexed')
         storage.markVectorIndexStatus(indexId, 'indexed')
@@ -295,6 +306,10 @@ export function knowledgeBaseRoutes(storage: StorageService, python: PythonBacke
 
     storage.updateDocumentLifecycle(docId, 'indexing')
     try {
+      const meta = storage.getDocumentMetadata(docId)
+      const authors = meta?.authors ? JSON.parse(meta.authors) : []
+      const keywords = meta?.keywords ? JSON.parse(meta.keywords) : []
+
       await python.post('/api/knowledge/documents/gateway', {
         doc_id: docId,
         knowledge_base_id: kbId,
@@ -314,6 +329,13 @@ export function knowledgeBaseRoutes(storage: StorageService, python: PythonBacke
           todo_list: doc.todo_list ?? '',
         },
         tags: doc.tags ? doc.tags.split(',').map(t => t.trim()).filter(Boolean) : [],
+        paper_title: meta?.title ?? doc.file_name,
+        authors,
+        year: meta?.year ?? null,
+        venue: meta?.venue ?? null,
+        abstract: meta?.abstract ?? doc.summary ?? '',
+        keywords,
+        metadata_status: meta?.metadata_status ?? 'missing',
       })
       storage.updateDocumentLifecycle(docId, 'indexed')
       storage.markVectorIndexStatus(indexId, 'indexed')

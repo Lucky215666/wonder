@@ -38,6 +38,20 @@ function createApp() {
     removeDocumentFromKB: vi.fn(),
     getReadmeSuggestions: vi.fn(() => []),
     updateReadmeSuggestionStatus: vi.fn(),
+    getDocumentMetadata: vi.fn(() => ({
+      document_id: 'doc-1',
+      title: 'Test Paper Title',
+      authors: JSON.stringify(['Author A', 'Author B']),
+      year: 2024,
+      venue: 'ACL',
+      doi: null,
+      url: null,
+      abstract: 'This is the abstract.',
+      keywords: JSON.stringify(['rag', 'nlp']),
+      metadata_status: 'extracted',
+      metadata_source: 'llm',
+      updated_at: '2025-01-01',
+    })),
   }
   const python = {
     post: vi.fn(async () => ({ doc_id: 'doc-1', message: 'Document indexed successfully' })),
@@ -76,6 +90,41 @@ describe('knowledgeBaseRoutes - reindex', () => {
         todo_list: 'Todo',
       }),
       tags: ['ai', 'nlp'],
+    }))
+  })
+
+  it('passes document metadata fields to Python indexing endpoint', async () => {
+    const { app, python } = createApp()
+
+    await app.request('/api/knowledge-bases/kb-1/documents/doc-1/reindex', {
+      method: 'POST',
+    })
+
+    expect(python.post).toHaveBeenCalledWith('/api/knowledge/documents/gateway', expect.objectContaining({
+      paper_title: 'Test Paper Title',
+      authors: ['Author A', 'Author B'],
+      year: 2024,
+      venue: 'ACL',
+      abstract: 'This is the abstract.',
+      keywords: ['rag', 'nlp'],
+      metadata_status: 'extracted',
+    }))
+  })
+
+  it('falls back to file_name when metadata is missing', async () => {
+    const { app, storage, python } = createApp()
+    storage.getDocumentMetadata.mockReturnValueOnce(undefined)
+
+    await app.request('/api/knowledge-bases/kb-1/documents/doc-1/reindex', {
+      method: 'POST',
+    })
+
+    expect(python.post).toHaveBeenCalledWith('/api/knowledge/documents/gateway', expect.objectContaining({
+      paper_title: 'test.pdf',
+      authors: [],
+      year: null,
+      venue: null,
+      metadata_status: 'missing',
     }))
   })
 
@@ -191,6 +240,11 @@ describe('knowledgeBaseRoutes - add to KB', () => {
       embedding_provider: 'openai_compatible',
       embedding_model: 'text-embedding-3-small',
       embedding_dimensions: 1536,
+      paper_title: 'Test Paper Title',
+      authors: ['Author A', 'Author B'],
+      year: 2024,
+      venue: 'ACL',
+      metadata_status: 'extracted',
     }))
   })
 
