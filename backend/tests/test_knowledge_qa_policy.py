@@ -167,8 +167,9 @@ class TestFinalizePolicy:
             top_k_docs=3,
             top_k_chunks=5,
         )
-        finalized = finalize_policy_after_retrieval(policy, has_reliable_sources=False)
+        finalized = finalize_policy_after_retrieval(policy, evidence_status="none")
         assert finalized.answer_mode == "mentioned_docs"
+        assert finalized.evidence_status == "none"
 
     def test_compare_docs_never_downgraded(self):
         policy = build_initial_policy(
@@ -178,8 +179,9 @@ class TestFinalizePolicy:
             top_k_docs=3,
             top_k_chunks=5,
         )
-        finalized = finalize_policy_after_retrieval(policy, has_reliable_sources=False)
+        finalized = finalize_policy_after_retrieval(policy, evidence_status="none")
         assert finalized.answer_mode == "compare_docs"
+        assert finalized.evidence_status == "none"
 
     def test_rag_enhanced_with_reliable_sources_stays(self):
         policy = build_initial_policy(
@@ -189,8 +191,9 @@ class TestFinalizePolicy:
             top_k_docs=3,
             top_k_chunks=5,
         )
-        finalized = finalize_policy_after_retrieval(policy, has_reliable_sources=True)
+        finalized = finalize_policy_after_retrieval(policy, evidence_status="reliable")
         assert finalized.answer_mode == "rag_enhanced"
+        assert finalized.evidence_status == "reliable"
 
     def test_rag_enhanced_without_reliable_becomes_general(self):
         policy = build_initial_policy(
@@ -200,8 +203,9 @@ class TestFinalizePolicy:
             top_k_docs=3,
             top_k_chunks=5,
         )
-        finalized = finalize_policy_after_retrieval(policy, has_reliable_sources=False)
+        finalized = finalize_policy_after_retrieval(policy, evidence_status="none")
         assert finalized.answer_mode == "general"
+        assert finalized.evidence_status == "none"
 
     def test_no_mentions_weak_sources_finalizes_to_general(self):
         policy = build_initial_policy(
@@ -211,8 +215,9 @@ class TestFinalizePolicy:
             top_k_docs=3,
             top_k_chunks=5,
         )
-        finalized = finalize_policy_after_retrieval(policy, has_reliable_sources=False)
+        finalized = finalize_policy_after_retrieval(policy, evidence_status="weak")
         assert finalized.answer_mode == "general"
+        assert finalized.evidence_status == "weak"
         assert finalized.retrieval_scope.strict_doc_scope is False
 
     def test_single_mention_stays_strict_even_with_weak_sources(self):
@@ -223,7 +228,44 @@ class TestFinalizePolicy:
             top_k_docs=3,
             top_k_chunks=5,
         )
-        finalized = finalize_policy_after_retrieval(policy, has_reliable_sources=False)
+        finalized = finalize_policy_after_retrieval(policy, evidence_status="weak")
         assert finalized.answer_mode == "mentioned_docs"
+        assert finalized.evidence_status == "weak"
         assert finalized.retrieval_scope.doc_ids == ["doc-1"]
         assert finalized.retrieval_scope.strict_doc_scope is True
+
+    def test_no_mentions_none_evidence_becomes_general_none(self):
+        policy = build_initial_policy(
+            knowledge_base_id="kb1",
+            doc_ids=None,
+            mentioned_doc_ids=None,
+            top_k_docs=3,
+            top_k_chunks=5,
+        )
+        finalized = finalize_policy_after_retrieval(policy, evidence_status="none")
+        assert finalized.answer_mode == "general"
+        assert finalized.evidence_status == "none"
+
+    def test_no_mentions_weak_evidence_becomes_general_weak(self):
+        policy = build_initial_policy(
+            knowledge_base_id="kb1",
+            doc_ids=None,
+            mentioned_doc_ids=None,
+            top_k_docs=3,
+            top_k_chunks=5,
+        )
+        finalized = finalize_policy_after_retrieval(policy, evidence_status="weak")
+        assert finalized.answer_mode == "general"
+        assert finalized.evidence_status == "weak"
+
+    def test_no_mentions_reliable_evidence_becomes_rag_enhanced(self):
+        policy = build_initial_policy(
+            knowledge_base_id="kb1",
+            doc_ids=None,
+            mentioned_doc_ids=None,
+            top_k_docs=3,
+            top_k_chunks=5,
+        )
+        finalized = finalize_policy_after_retrieval(policy, evidence_status="reliable")
+        assert finalized.answer_mode == "rag_enhanced"
+        assert finalized.evidence_status == "reliable"

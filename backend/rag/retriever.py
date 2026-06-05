@@ -188,7 +188,7 @@ class RAGRetriever:
                 "file_name": meta.get("file_name", "unknown"),
                 "chunk_id": meta.get("chunk_id"),
                 "chunk_index": meta.get("chunk_index"),
-                "chunk_type": "summary",
+                "chunk_type": meta.get("chunk_type", "summary"),
                 "content": doc,
                 "score": 1 - dist / 2 if dist is not None else None,
             })
@@ -205,7 +205,7 @@ class RAGRetriever:
                 "file_name": meta.get("file_name", "unknown"),
                 "chunk_id": meta.get("chunk_id"),
                 "chunk_index": meta.get("chunk_index"),
-                "chunk_type": "content",
+                "chunk_type": meta.get("chunk_type", "content"),
                 "content": doc,
                 "score": 1 - dist / 2 if dist is not None else None,
             })

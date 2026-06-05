@@ -1,8 +1,9 @@
 """QA mode policy: determines answer mode and retrieval scope."""
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import List, Literal, Optional
 
 AnswerMode = Literal["general", "rag_enhanced", "mentioned_docs", "compare_docs"]
+EvidenceStatus = Literal["none", "weak", "reliable"]
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,7 @@ class QAPolicy:
     answer_mode: AnswerMode
     retrieval_scope: RetrievalScope
     limits: QALimits
+    evidence_status: EvidenceStatus = "none"
 
 
 DEFAULT_LIMITS = QALimits(
@@ -80,15 +82,21 @@ def build_initial_policy(
 
 
 def finalize_policy_after_retrieval(
-    policy: QAPolicy, *, has_reliable_sources: bool
+    policy: QAPolicy, *, evidence_status: EvidenceStatus
 ) -> QAPolicy:
-    """Downgrade to general mode when RAG found nothing reliable (non-strict only)."""
+    """Finalize policy after retrieval based on evidence quality.
+
+    For strict_doc_scope (mentioned_docs / compare_docs), preserve answer_mode
+    but still track evidence_status.
+    For non-strict, downgrade answer_mode based on evidence:
+    - reliable -> rag_enhanced
+    - weak -> general
+    - none -> general
+    """
     if policy.retrieval_scope.strict_doc_scope:
-        return policy
-    if has_reliable_sources:
-        return policy
-    return QAPolicy(
-        answer_mode="general",
-        retrieval_scope=policy.retrieval_scope,
-        limits=policy.limits,
-    )
+        return replace(policy, evidence_status=evidence_status)
+    if evidence_status == "reliable":
+        return replace(policy, answer_mode="rag_enhanced", evidence_status="reliable")
+    if evidence_status == "weak":
+        return replace(policy, answer_mode="general", evidence_status="weak")
+    return replace(policy, answer_mode="general", evidence_status="none")

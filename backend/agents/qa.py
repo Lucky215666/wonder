@@ -13,6 +13,21 @@ Requirements:
 5. Research card context represents the user's previous synthesis. Do not present it as paper evidence unless source refs or paper chunks support it.
 """
 
+    NO_EVIDENCE_RULE = (
+        "If evidence_status is none, answer with the short no-evidence template. "
+        "Do not invent paper findings. Do not cite knowledge-base sources."
+    )
+
+    WEAK_EVIDENCE_RULE = (
+        "If evidence_status is weak, say the retrieved material is only weakly related. "
+        "List possible related material briefly, then give clearly marked general guidance. "
+        "Do not present weak material as proof."
+    )
+
+    README_RULE = (
+        "Knowledge base README/background is not paper evidence. Never cite it as a source."
+    )
+
     MODE_PROMPTS: Dict[str, str] = {
         "general": (
             "Answer as general research guidance. Start by saying the current knowledge base "
@@ -42,6 +57,7 @@ Requirements:
         conversation_history: Optional[List[Dict[str, str]]] = None,
         user_name: str = "",
         answer_mode: Optional[str] = None,
+        evidence_status: Optional[str] = None,
         max_answer_tokens: int = 1800,
         max_context_chars: int = 10000,
     ) -> str:
@@ -50,6 +66,12 @@ Requirements:
         system_prompt = self.SYSTEM_PROMPT
         if answer_mode and answer_mode in self.MODE_PROMPTS:
             system_prompt += f"\nMode: {self.MODE_PROMPTS[answer_mode]}"
+        if evidence_status == "none":
+            system_prompt += f"\n{self.NO_EVIDENCE_RULE}"
+        elif evidence_status == "weak":
+            system_prompt += f"\n{self.WEAK_EVIDENCE_RULE}"
+        # README rule always applies
+        system_prompt += f"\n{self.README_RULE}"
         if user_name:
             system_prompt += f"\nThe user's name is {user_name}. Address them by name when appropriate."
 

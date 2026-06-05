@@ -11,6 +11,20 @@ from backend.agents.qa import QAAgent
 from backend.agents.qa_policy import build_initial_policy, finalize_policy_after_retrieval
 from backend.rag.retriever import RAGRetriever
 
+
+def classify_evidence(refs: list[dict]) -> str:
+    """Classify evidence status from source refs, excluding README/profile background."""
+    non_readme_refs = [
+        ref for ref in refs
+        if ref.get("chunk_type") in {"card", "profile", "summary", "content"}
+    ]
+    if not non_readme_refs:
+        return "none"
+    best = max((ref.get("score") or 0) for ref in non_readme_refs)
+    if best >= 0.35:
+        return "reliable"
+    return "weak"
+
 class TaskType(str, Enum):
     ANALYZE_DOCUMENT = "analyze_document"
     ASK_QUESTION = "ask_question"
@@ -310,35 +324,39 @@ class Orchestrator:
         # --- Phase 3: Finalize policy based on retrieval quality ---
         reliable_card_refs = [ref for ref in card_refs if (ref.get("score") or 0) >= 0.25]
         all_source_refs = reliable_card_refs + retrieval.source_refs
-        has_reliable = any(
-            (ref.get("score") or 0) >= 0.25 for ref in all_source_refs
-        )
-        policy = finalize_policy_after_retrieval(policy, has_reliable_sources=has_reliable)
+        evidence_status = classify_evidence(all_source_refs)
+        policy = finalize_policy_after_retrieval(policy, evidence_status=evidence_status)
 
         # Keep weak no-mention refs out of general answers
         if policy.answer_mode == "general":
             all_source_refs = []
 
         # --- Phase 4: Build context ---
-        context_parts = []
+        # README and global profile are background only, never evidence
+        background_parts = []
         if global_profile.strip():
-            context_parts.append(f"[Global Profile]\n{global_profile}")
+            background_parts.append(f"[Global Profile]\n{global_profile}")
         if knowledge_base_readme.strip():
-            context_parts.append(f"[Knowledge Base README]\n{knowledge_base_readme}")
-        # Prepend reliable card refs as context
-        if reliable_card_refs:
-            card_context = "\n\n---\n\n".join(
-                f"[Research Card] {ref.get('card_id')}\n{ref.get('content')}"
-                for ref in reliable_card_refs[:5]
-            )
-            context_parts.append(card_context)
-        # For general mode without reliable sources, skip retrieval context
-        if policy.answer_mode != "general" or has_reliable:
+            background_parts.append(f"[Knowledge Base Background]\n{knowledge_base_readme}")
+
+        if policy.evidence_status == "none":
+            # No evidence: background only, no source refs
+            all_source_refs = []
+            document_context = "\n\n".join(background_parts)
+        else:
+            # Weak or reliable: background labeled separately + evidence context
+            context_parts = list(background_parts)
+            if reliable_card_refs:
+                card_context = "\n\n---\n\n".join(
+                    f"[Research Card] {ref.get('card_id')}\n{ref.get('content')}"
+                    for ref in reliable_card_refs[:5]
+                )
+                context_parts.append(card_context)
             if retrieval.context:
                 context_parts.append(retrieval.context)
-        document_context = "\n\n---\n\n".join(part for part in context_parts if part)
+            document_context = "\n\n---\n\n".join(part for part in context_parts if part)
 
-        # --- Phase 5: Call QA agent with mode and limits ---
+        # --- Phase 5: Call QA agent with mode, limits, and evidence status ---
         answer = self.agents["qa"].run(
             document_context=document_context,
             analysis_report="",
@@ -346,6 +364,7 @@ class Orchestrator:
             conversation_history=conversation_history or [],
             user_name=nickname,
             answer_mode=policy.answer_mode,
+            evidence_status=policy.evidence_status,
             max_answer_tokens=policy.limits.max_answer_tokens,
             max_context_chars=policy.limits.max_context_chars,
         )
@@ -356,6 +375,7 @@ class Orchestrator:
             "source_chunks": retrieval.chunks,
             "answer_mode": policy.answer_mode,
             "source_refs": all_source_refs,
+            "evidence_status": policy.evidence_status,
         }
 
     def _generate_writing(self, reading_card: str, relation_analysis: str,

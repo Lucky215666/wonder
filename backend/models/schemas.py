@@ -1,6 +1,8 @@
 from typing import Any, List, Literal, Optional
 from pydantic import BaseModel, Field
 
+EvidenceStatus = Literal["none", "weak", "reliable"]
+
 
 class AnalysisRequest(BaseModel):
     max_chars: int = 7000
@@ -131,7 +133,7 @@ class SourceRef(BaseModel):
     file_name: str
     chunk_id: Optional[str] = None
     chunk_index: Optional[int] = None
-    chunk_type: Literal["summary", "content", "card"] = "content"
+    chunk_type: Literal["summary", "content", "card", "profile"] = "content"
     content: str
     score: Optional[float] = None
     # Card-specific fields (optional, only present when chunk_type == "card")
@@ -148,6 +150,7 @@ class KnowledgeQAResponse(BaseModel):
     source_chunks: List[str]
     answer_mode: Optional[Literal["general", "rag_enhanced", "mentioned_docs", "compare_docs"]] = None
     source_refs: Optional[List[SourceRef]] = None
+    evidence_status: Optional[EvidenceStatus] = None
 
 class SearchRequest(BaseModel):
     query: str
@@ -253,7 +256,7 @@ class ResearchCardSourceRef(BaseModel):
     file_name: Optional[str] = ""
     chunk_id: Optional[str] = None
     chunk_index: Optional[int] = None
-    chunk_type: Literal["summary", "content", "card"] = "content"
+    chunk_type: Literal["summary", "content", "card", "profile"] = "content"
     content: str = ""
     snippet: Optional[str] = None
     score: Optional[float] = None

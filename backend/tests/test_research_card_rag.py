@@ -511,3 +511,48 @@ def test_qa_source_refs_include_research_card_refs_before_paper_refs():
     assert refs[1]["chunk_type"] == "content"
     assert refs[1]["file_name"] == "paper.pdf"
     assert refs[1]["score"] == 0.85
+
+
+class EmptyRetriever:
+    """Fake retriever returning no source refs (README-only scenario)."""
+    def retrieve(self, **kwargs):
+        from backend.rag.retriever import RetrievalResult
+        return RetrievalResult(
+            summaries=[],
+            chunks=[],
+            context="",
+            source_doc_ids=[],
+            source_refs=[],
+            retrieval_confidence=0.0,
+        )
+
+
+class CapturingAgent:
+    """Agent that captures the evidence_status passed to it."""
+    def __init__(self):
+        self.last_evidence_status = None
+
+    def run(self, **kwargs):
+        self.last_evidence_status = kwargs.get("evidence_status")
+        return "answer"
+
+
+def test_readme_only_context_returns_none_evidence():
+    """README-only context should yield evidence_status='none' and empty source_refs."""
+    agent = CapturingAgent()
+    orchestrator = Orchestrator(
+        agents={"qa": agent},
+        retriever=EmptyRetriever(),
+        card_retriever=None,
+    )
+
+    result = orchestrator.route_task(
+        task_type="ask_question",
+        question="What is this about?",
+        knowledge_base_readme="This is a knowledge base about AI research.",
+    )
+
+    assert result["evidence_status"] == "none"
+    assert result["source_refs"] == []
+    assert result["answer_mode"] == "general"
+    assert agent.last_evidence_status == "none"
