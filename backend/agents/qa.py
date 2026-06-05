@@ -15,20 +15,22 @@ Requirements:
 
     MODE_PROMPTS: Dict[str, str] = {
         "general": (
-            "Answer as a general research assistant. "
-            "Do not cite knowledge base sources."
+            "Answer as general research guidance. Start by saying the current knowledge base "
+            "does not contain enough reliable evidence for this question. Do not claim that "
+            "the answer is supported by uploaded papers."
         ),
         "rag_enhanced": (
             "Prioritize retrieved chunks. "
             "Qualify unsupported claims."
         ),
         "mentioned_docs": (
-            "Only discuss the mentioned paper as evidence. "
-            "If evidence is insufficient, say so briefly."
+            "Answer using only the explicitly mentioned paper as paper evidence. If the "
+            "retrieved evidence does not support a claim, say that the paper evidence is "
+            "insufficient before giving general background."
         ),
         "compare_docs": (
-            "Use structured comparison: common points, differences, research implications. "
-            "Each paper max 2 key cited points."
+            "Compare only the explicitly mentioned papers. Do not use unmentioned papers as "
+            "evidence. Include common points, differences, research implications, and evidence gaps."
         ),
     }
 

@@ -153,7 +153,7 @@ class RAGRetriever:
         context = self._build_context(summaries_result, chunks_result, max_context_tokens)
 
         # Build structured source_refs
-        source_refs = self._build_source_refs(summaries_result, chunks_result)
+        source_refs = self._dedupe_refs(self._build_source_refs(summaries_result, chunks_result))
 
         # Compute retrieval_confidence as average score of summary refs
         summary_scores = [
@@ -211,6 +211,24 @@ class RAGRetriever:
             })
 
         return refs
+
+    @staticmethod
+    def _dedupe_refs(refs: List[dict]) -> List[dict]:
+        seen = set()
+        deduped = []
+        for ref in refs:
+            key = (
+                ref.get("doc_id"),
+                ref.get("chunk_type"),
+                ref.get("chunk_id"),
+                ref.get("chunk_index"),
+                (ref.get("content") or "")[:120],
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(ref)
+        return deduped
 
     def _build_context(self, summaries: Dict, chunks: Dict,
                        max_tokens: int) -> str:

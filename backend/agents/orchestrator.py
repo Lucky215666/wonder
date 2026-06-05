@@ -285,6 +285,19 @@ class Orchestrator:
                 top_k=5,
             )
 
+        # Filter card refs to respect strict mention scope
+        if policy.retrieval_scope.strict_doc_scope and policy.retrieval_scope.doc_ids:
+            allowed_doc_ids = set(policy.retrieval_scope.doc_ids)
+            filtered_card_refs = []
+            for ref in card_refs:
+                linked_doc_ids = set(ref.get("linked_doc_ids") or [])
+                if linked_doc_ids and not linked_doc_ids.intersection(allowed_doc_ids):
+                    continue
+                if ref.get("doc_id") and ref["doc_id"] not in allowed_doc_ids:
+                    continue
+                filtered_card_refs.append(ref)
+            card_refs = filtered_card_refs
+
         # --- Phase 2b: Retrieve using policy scope ---
         retrieval = self.retriever.retrieve(
             query=question,
@@ -301,6 +314,10 @@ class Orchestrator:
             (ref.get("score") or 0) >= 0.25 for ref in all_source_refs
         )
         policy = finalize_policy_after_retrieval(policy, has_reliable_sources=has_reliable)
+
+        # Keep weak no-mention refs out of general answers
+        if policy.answer_mode == "general":
+            all_source_refs = []
 
         # --- Phase 4: Build context ---
         context_parts = []

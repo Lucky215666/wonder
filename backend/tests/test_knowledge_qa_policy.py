@@ -202,3 +202,28 @@ class TestFinalizePolicy:
         )
         finalized = finalize_policy_after_retrieval(policy, has_reliable_sources=False)
         assert finalized.answer_mode == "general"
+
+    def test_no_mentions_weak_sources_finalizes_to_general(self):
+        policy = build_initial_policy(
+            knowledge_base_id="kb1",
+            doc_ids=None,
+            mentioned_doc_ids=None,
+            top_k_docs=3,
+            top_k_chunks=5,
+        )
+        finalized = finalize_policy_after_retrieval(policy, has_reliable_sources=False)
+        assert finalized.answer_mode == "general"
+        assert finalized.retrieval_scope.strict_doc_scope is False
+
+    def test_single_mention_stays_strict_even_with_weak_sources(self):
+        policy = build_initial_policy(
+            knowledge_base_id="kb1",
+            doc_ids=None,
+            mentioned_doc_ids=["doc-1"],
+            top_k_docs=3,
+            top_k_chunks=5,
+        )
+        finalized = finalize_policy_after_retrieval(policy, has_reliable_sources=False)
+        assert finalized.answer_mode == "mentioned_docs"
+        assert finalized.retrieval_scope.doc_ids == ["doc-1"]
+        assert finalized.retrieval_scope.strict_doc_scope is True
