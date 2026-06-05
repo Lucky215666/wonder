@@ -35,7 +35,7 @@ export function knowledgeRoutes(storage: StorageService, python: PythonBackendCl
         authors: doc.authors || null,
         year: doc.year || null,
         knowledgeBaseId: doc.knowledge_base_id || null,
-        indexedStatus: doc.status || doc.indexed_status || 'unknown',
+        indexedStatus: doc.status || doc.indexed_status || doc.lifecycle_status || 'unknown',
       }))
 
     return c.json(docs)
