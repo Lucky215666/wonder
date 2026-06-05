@@ -4,7 +4,9 @@ import type { ResearchCardDraft } from '../types/research-card'
 
 type AnswerMode = 'general' | 'rag_enhanced' | 'mentioned_docs' | 'compare_docs'
 
-interface QASources {
+export type EvidenceStatus = 'none' | 'weak' | 'reliable'
+
+export interface QASources {
   docIds: string[]
   chunks: string[]
   refs?: Array<{
@@ -12,11 +14,12 @@ interface QASources {
     file_name: string
     chunk_id?: string | null
     chunk_index?: number | null
-    chunk_type: 'summary' | 'content'
+    chunk_type: 'profile' | 'summary' | 'content' | 'card'
     content: string
     score?: number | null
   }>
   answerMode?: AnswerMode
+  evidenceStatus?: EvidenceStatus
 }
 
 interface QAMessage {

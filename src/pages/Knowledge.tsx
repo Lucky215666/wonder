@@ -5,7 +5,7 @@ import {
   PlusOutlined, BookOutlined, DeleteOutlined, EditOutlined,
   FileTextOutlined, SettingOutlined, ArrowLeftOutlined,
   CheckCircleOutlined, SyncOutlined, CloseCircleOutlined, MinusCircleOutlined,
-  ReloadOutlined,
+  ReloadOutlined, WarningOutlined,
 } from '@ant-design/icons'
 import { useKnowledgeStore } from '../stores/knowledge'
 import ApiGuard from '../components/ApiGuard'
@@ -263,7 +263,7 @@ export default function Knowledge() {
           ) : (
             <List
               size="small"
-              dataSource={kbDocuments as { id: string; file_name: string; summary?: string; fit_score?: number; recommended_action?: string; created_at: string; index_status?: string | null; index_error?: string | null; reading_card?: string | null }[]}
+              dataSource={kbDocuments as { id: string; file_name: string; title?: string | null; summary?: string; fit_score?: number; recommended_action?: string; created_at: string; index_status?: string | null; index_error?: string | null; metadata_status?: string | null; year?: number | null; reading_card?: string | null }[]}
               renderItem={doc => {
                 const indexStatus = doc.index_status || 'not_indexed'
                 const indexTagMap: Record<string, { color: string; icon: React.ReactNode; label: string }> = {
@@ -273,6 +273,21 @@ export default function Knowledge() {
                   not_indexed: { color: 'default', icon: <MinusCircleOutlined />, label: '未索引' },
                 }
                 const tagInfo = indexTagMap[indexStatus] || indexTagMap.not_indexed
+
+                const metadataStatus = doc.metadata_status || 'missing'
+                const metadataTagMap: Record<string, { color: string; label: string }> = {
+                  complete: { color: 'green', label: '元数据完整' },
+                  partial: { color: 'orange', label: '元数据部分' },
+                  missing: { color: 'default', label: '元数据缺失' },
+                }
+                const metaTagInfo = metadataTagMap[metadataStatus] || metadataTagMap.missing
+
+                // Parse reading card for fallback title
+                let parsedReadingCardPaperTitle: string | undefined
+                try { parsedReadingCardPaperTitle = JSON.parse(doc.reading_card || '{}').paperTitle } catch { /* ignore */ }
+
+                const displayTitle = doc.title || parsedReadingCardPaperTitle || doc.file_name
+
                 return (
                 <List.Item
                   onClick={() => navigate(`/document/${doc.id}`)}
@@ -281,9 +296,7 @@ export default function Knowledge() {
                   <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <Typography.Text strong ellipsis style={{ color: 'var(--accent)', maxWidth: '60%' }}>
-                        {(() => {
-                          try { return JSON.parse(doc.reading_card || '{}').paperTitle || doc.file_name } catch { return doc.file_name }
-                        })()}
+                        {displayTitle}
                       </Typography.Text>
                       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4 }} onClick={e => e.stopPropagation()}>
                         <Tag color={tagInfo.color} icon={tagInfo.icon}>{tagInfo.label}</Tag>
@@ -320,10 +333,20 @@ export default function Knowledge() {
                         {doc.summary}
                       </Typography.Paragraph>
                     )}
-                    <div style={{ marginTop: 4 }}>
+                    <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <Tag color={metaTagInfo.color} style={{ fontSize: 11 }}>
+                        {metadataStatus === 'missing' && <WarningOutlined style={{ marginRight: 2 }} />}
+                        {metaTagInfo.label}
+                      </Tag>
+                      {metadataStatus === 'missing' && (
+                        <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                          元数据缺失，可回填
+                        </Typography.Text>
+                      )}
+                      {doc.year && <Tag style={{ fontSize: 11 }}>{doc.year}</Tag>}
                       {doc.fit_score != null && <Tag color="blue">匹配 {doc.fit_score}</Tag>}
                       {doc.recommended_action && <Tag style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.recommended_action}</Tag>}
-                      <Typography.Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
+                      <Typography.Text type="secondary" style={{ fontSize: 12, marginLeft: 'auto' }}>
                         {new Date(doc.created_at).toLocaleDateString('zh-CN')}
                       </Typography.Text>
                     </div>

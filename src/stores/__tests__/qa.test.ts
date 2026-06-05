@@ -131,6 +131,59 @@ describe('useQAStore', () => {
     expect(useQAStore.getState().sessionsError).toBe('not found')
   })
 
+  it('openSession parses evidenceStatus from saved sources', async () => {
+    mockApi.get.mockResolvedValueOnce({
+      id: 's1',
+      title: 'Test',
+      scope_type: 'all',
+      scope_ids: '[]',
+      updated_at: '2024-01-01',
+      messages: [
+        {
+          id: 'm1',
+          role: 'assistant',
+          content: 'answer',
+          sources: JSON.stringify({
+            docIds: [],
+            chunks: [],
+            refs: [],
+            answerMode: 'general',
+            evidenceStatus: 'none',
+          }),
+        },
+      ],
+    })
+
+    await useQAStore.getState().openSession('s1')
+    expect(useQAStore.getState().messages[0].sources?.evidenceStatus).toBe('none')
+  })
+
+  it('openSession preserves missing evidenceStatus as undefined', async () => {
+    mockApi.get.mockResolvedValueOnce({
+      id: 's1',
+      title: 'Test',
+      scope_type: 'all',
+      scope_ids: '[]',
+      updated_at: '2024-01-01',
+      messages: [
+        {
+          id: 'm1',
+          role: 'assistant',
+          content: 'answer',
+          sources: JSON.stringify({
+            docIds: ['doc-1'],
+            chunks: [],
+            refs: [],
+            answerMode: 'rag_enhanced',
+          }),
+        },
+      ],
+    })
+
+    await useQAStore.getState().openSession('s1')
+    expect(useQAStore.getState().messages[0].sources?.evidenceStatus).toBeUndefined()
+  })
+
   it('openSession parses legacy sources without refs', async () => {
     mockApi.get.mockResolvedValueOnce({
       id: 's1',
