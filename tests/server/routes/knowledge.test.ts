@@ -1,6 +1,19 @@
 import { describe, expect, it, vi } from 'vitest'
 import { knowledgeRoutes } from '../../../server/routes/knowledge'
 
+function createBackfillStorage(opts: { docs?: any[]; historyMap?: Record<string, any> } = {}) {
+  const docs = opts.docs ?? []
+  const historyMap = opts.historyMap ?? {}
+  return {
+    listDocuments: vi.fn(() => docs),
+    getDocument: vi.fn((id: string) => docs.find((d: any) => d.id === id) ?? undefined),
+    getLatestHistoryByDocumentId: vi.fn((id: string) => historyMap[id] ?? undefined),
+    upsertDocumentMetadata: vi.fn(),
+    listDocumentsWithMetadata: vi.fn(() => []),
+    getDocumentsByKBWithMetadata: vi.fn(() => []),
+  }
+}
+
 describe('knowledgeRoutes document search', () => {
   it('returns documents for an empty mention query', async () => {
     const storage = {
@@ -206,5 +219,113 @@ describe('knowledgeRoutes document search', () => {
     const res = await app.request('/documents/search?q=&knowledgeBaseId=kb1')
     const body = await res.json()
     expect(body[0].authors).toEqual(['Alice', 'Bob', 'Charlie'])
+  })
+})
+
+describe('knowledgeRoutes backfill endpoints', () => {
+  it('POST /documents/metadata/backfill extracts metadata from all documents', async () => {
+    const storage = createBackfillStorage({
+      docs: [
+        { id: 'doc-1', file_name: 'attention.pdf', reading_card: '## Paper Title\nAttention Is All You Need\n## Authors\nVaswani et al.\n## Year\n2017', summary: 'Transformer paper' },
+        { id: 'doc-2', file_name: 'bert.pdf', reading_card: '', summary: 'BERT paper' },
+      ],
+    })
+    const app = knowledgeRoutes(storage as any, { delete: vi.fn() } as any)
+
+    const res = await app.request('/documents/metadata/backfill', { method: 'POST' })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.total).toBe(2)
+    expect(body.updated).toBeGreaterThanOrEqual(1)
+    expect(storage.upsertDocumentMetadata).toHaveBeenCalledTimes(2)
+  })
+
+  it('POST /documents/metadata/backfill uses history result for metadata', async () => {
+    const storage = createBackfillStorage({
+      docs: [
+        { id: 'doc-1', file_name: 'paper.pdf', reading_card: '', summary: '' },
+      ],
+      historyMap: {
+        'doc-1': {
+          id: 'h-1',
+          document_id: 'doc-1',
+          result: JSON.stringify({
+            paperTitle: 'Deep Learning',
+            authors: ['LeCun', 'Bengio', 'Hinton'],
+            year: 2015,
+            venue: 'Nature',
+          }),
+        },
+      },
+    })
+    const app = knowledgeRoutes(storage as any, { delete: vi.fn() } as any)
+
+    const res = await app.request('/documents/metadata/backfill', { method: 'POST' })
+    const body = await res.json()
+    expect(body.updated).toBe(1)
+    expect(body.missing).toBe(0)
+    expect(storage.upsertDocumentMetadata).toHaveBeenCalledWith(
+      expect.objectContaining({
+        documentId: 'doc-1',
+        title: 'Deep Learning',
+        authors: ['LeCun', 'Bengio', 'Hinton'],
+        year: 2015,
+        venue: 'Nature',
+      }),
+    )
+  })
+
+  it('POST /documents/metadata/backfill reports missing status when no metadata found', async () => {
+    const storage = createBackfillStorage({
+      docs: [
+        { id: 'doc-1', file_name: null, reading_card: null, summary: null },
+      ],
+    })
+    const app = knowledgeRoutes(storage as any, { delete: vi.fn() } as any)
+
+    const res = await app.request('/documents/metadata/backfill', { method: 'POST' })
+    const body = await res.json()
+    expect(body.missing).toBe(1)
+    expect(body.updated).toBe(0)
+  })
+
+  it('POST /documents/:id/metadata/backfill returns 404 for unknown document', async () => {
+    const storage = createBackfillStorage()
+    const app = knowledgeRoutes(storage as any, { delete: vi.fn() } as any)
+
+    const res = await app.request('/documents/nonexistent/metadata/backfill', { method: 'POST' })
+    expect(res.status).toBe(404)
+    const body = await res.json()
+    expect(body.error).toBe('Document not found')
+  })
+
+  it('POST /documents/:id/metadata/backfill extracts and persists metadata for single doc', async () => {
+    const storage = createBackfillStorage({
+      docs: [
+        { id: 'doc-1', file_name: 'attention.pdf', reading_card: '## Paper Title\nAttention Is All You Need\n## Authors\nVaswani\n## Year\n2017', summary: 'Transformer' },
+      ],
+    })
+    const app = knowledgeRoutes(storage as any, { delete: vi.fn() } as any)
+
+    const res = await app.request('/documents/doc-1/metadata/backfill', { method: 'POST' })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.documentId).toBe('doc-1')
+    expect(body.metadataStatus).toBeDefined()
+    expect(body.metadata).toBeDefined()
+    expect(body.metadata.title).toBe('Attention Is All You Need')
+    expect(storage.upsertDocumentMetadata).toHaveBeenCalledWith(
+      expect.objectContaining({ documentId: 'doc-1' }),
+    )
+  })
+
+  it('POST /documents/metadata/backfill returns empty result when no documents exist', async () => {
+    const storage = createBackfillStorage({ docs: [] })
+    const app = knowledgeRoutes(storage as any, { delete: vi.fn() } as any)
+
+    const res = await app.request('/documents/metadata/backfill', { method: 'POST' })
+    const body = await res.json()
+    expect(body).toEqual({ updated: 0, missing: 0, total: 0 })
+    expect(storage.upsertDocumentMetadata).not.toHaveBeenCalled()
   })
 })

@@ -8,6 +8,7 @@ function createSSEApp() {
     getDocumentsByKB: vi.fn(() => []),
     getConfig: vi.fn((key: string) => key === 'globalProfile' ? 'profile' : undefined),
     upsertDocument: vi.fn(),
+    upsertDocumentMetadata: vi.fn(),
     insertChunk: vi.fn(),
     addReadmeSuggestion: vi.fn(),
     addHistory: vi.fn(),
@@ -201,6 +202,30 @@ describe('analysisRoutes', () => {
       expect(data.documentId).toBeDefined()
       expect(data.historyId).toBeDefined()
     }
+  })
+
+  it('persists document metadata after analysis', async () => {
+    const { app, storage } = createSSEApp()
+
+    const res = await app.request('/api/analysis/single', {
+      method: 'POST',
+      body: JSON.stringify({
+        fileName: 'test.pdf',
+        fileType: 'pdf',
+        text: 'Text.',
+        pdfTitle: 'Test Paper Title',
+      }),
+      headers: { 'Content-Type': 'application/json' },
+    })
+    await res.text()
+
+    expect(storage.upsertDocumentMetadata).toHaveBeenCalledWith(
+      expect.objectContaining({
+        documentId: expect.any(String),
+        metadataStatus: expect.stringMatching(/complete|partial|missing/),
+        metadataSource: expect.any(String),
+      }),
+    )
   })
 })
 

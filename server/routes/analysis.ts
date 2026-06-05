@@ -3,6 +3,7 @@ import { streamSSE } from 'hono/streaming'
 import { StorageService } from '../services/storage'
 import { PythonBackendClient } from '../services/python-backend'
 import { randomUUID } from 'crypto'
+import { extractDocumentMetadata, metadataStatus } from '../services/document-metadata'
 
 function extractTopicSummary(readingCard: string, maxLen = 500): string {
   if (!readingCard) return ''
@@ -242,6 +243,36 @@ export function analysisRoutes(storage: StorageService, python: PythonBackendCli
           todoList: safeTodoList,
           tags: safeTags.length > 0 ? safeTags.join(',') : undefined,
           matchScore: result.fit_score,
+        })
+
+        // Persist document metadata extracted from analysis result
+        const extractedMeta = extractDocumentMetadata({
+          fileName,
+          readingCard: safeReadingCard,
+          summary: safeSummary,
+          analysisResult: {
+            paper_title: result.paper_title,
+            pdf_title: pdfTitle,
+            authors: (result as any).authors,
+            year: (result as any).year,
+            venue: (result as any).venue,
+            doi: (result as any).doi,
+            abstract: (result as any).abstract,
+            keywords: (result as any).keywords,
+          },
+        })
+        storage.upsertDocumentMetadata({
+          documentId: docId,
+          title: extractedMeta.title,
+          authors: extractedMeta.authors,
+          year: extractedMeta.year,
+          venue: extractedMeta.venue,
+          doi: extractedMeta.doi,
+          url: extractedMeta.url,
+          abstract: extractedMeta.abstract,
+          keywords: extractedMeta.keywords,
+          metadataStatus: metadataStatus(extractedMeta),
+          metadataSource: extractedMeta.source,
         })
 
         // Store source chunks for later vector indexing (used by "收录" button)
