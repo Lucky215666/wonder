@@ -151,6 +151,30 @@ def test_knowledge_index_request_coerces_null_file_path_to_empty_string():
     assert index_req.file_path == ""
 
 
+def test_literature_agent_focused_fallback_on_invalid_json():
+    from backend.agents.literature import LiteratureParserAgent
+
+    agent = LiteratureParserAgent("test-model", provider=None)
+    result = agent._parse_focused_chunk_result("not json", chunk_index=2)
+
+    assert result["chunk_index"] == 2
+    assert result["signals"] == []
+    assert "missing_or_uncertain" in result
+
+
+def test_literature_agent_parses_focused_chunk_json():
+    from backend.agents.literature import LiteratureParserAgent
+
+    agent = LiteratureParserAgent("test-model", provider=None)
+    raw = '{"signals":[{"text":"Method can be reused","signal_type":"method","section_type":"method","evidence_hint":"adapter"}],"missing_or_uncertain":["dataset unclear"]}'
+    result = agent._parse_focused_chunk_result(raw, chunk_index=1)
+
+    assert result["signals"][0]["text"] == "Method can be reused"
+    assert result["signals"][0]["chunk_index"] == 1
+    assert result["signals"][0]["section_type"] == "method"
+    assert result["missing_or_uncertain"] == ["dataset unclear"]
+
+
 def test_health_alias_available():
     client = TestClient(app)
     res = client.get("/health")
