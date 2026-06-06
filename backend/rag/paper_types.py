@@ -2,6 +2,27 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 ParserName = Literal["mineru_precision", "mineru_agent", "pypdf"]
+PaperBlockType = Literal[
+    "title",
+    "abstract",
+    "heading",
+    "paragraph",
+    "figure_caption",
+    "table_caption",
+    "formula",
+    "reference",
+    "appendix",
+]
+PaperChunkType = Literal[
+    "abstract",
+    "content",
+    "figure_caption",
+    "table_caption",
+    "formula",
+    "reference",
+    "summary",
+    "profile",
+]
 
 
 @dataclass(frozen=True)
@@ -30,6 +51,13 @@ class PaperDocument:
     blocks: list[PaperBlock]
     raw_markdown: str
     parser: ParserName
+    document_id: str | None = None
+    file_name: str | None = None
+    year: int | None = None
+    venue: str | None = None
+    doi: str | None = None
+    page_count: int | None = None
+    parser_version: str | None = None
 
 
 @dataclass(frozen=True)
@@ -45,6 +73,10 @@ class PaperChunk:
     prev_chunk_id: str | None = None
     next_chunk_id: str | None = None
     block_types: list[str] = field(default_factory=list)
+    chunk_type: str = "content"
+    labels: list[str] = field(default_factory=list)
+    parser: ParserName = "pypdf"
+    parser_version: str | None = None
 
 
 @dataclass(frozen=True)
@@ -74,12 +106,16 @@ def chroma_safe_metadata(chunk: PaperChunk) -> dict:
     return {
         "chunk_id": chunk.chunk_id,
         "chunk_index": chunk.chunk_index,
+        "chunk_type": chunk.chunk_type,
         "section_type": chunk.section_type,
         "section_title": chunk.section_title,
         "page_start": chunk.page_start,
         "page_end": chunk.page_end,
+        "labels": ",".join(chunk.labels),
         "is_reference": chunk.is_reference,
         "prev_chunk_id": chunk.prev_chunk_id or "",
         "next_chunk_id": chunk.next_chunk_id or "",
         "block_types": ",".join(chunk.block_types),
+        "parser": chunk.parser,
+        "parser_version": chunk.parser_version or "",
     }

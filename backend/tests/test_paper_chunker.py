@@ -76,14 +76,18 @@ def test_chroma_safe_metadata_keeps_only_scalar_values():
     assert meta == {
         "chunk_id": "c1",
         "chunk_index": 0,
+        "chunk_type": "content",
         "section_type": "method",
         "section_title": "2 Method",
         "page_start": 2,
         "page_end": 3,
+        "labels": "",
         "is_reference": False,
         "prev_chunk_id": "",
         "next_chunk_id": "c2",
         "block_types": "paragraph,formula",
+        "parser": "pypdf",
+        "parser_version": "",
     }
 
 
