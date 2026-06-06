@@ -402,4 +402,52 @@ describe('useQAStore', () => {
 
     expect(mockApi.post).toHaveBeenCalledWith('/api/research-cards', draft)
   })
+
+  it('normalizes structured paper source refs from QA responses', async () => {
+    useQAStore.setState({ sessionId: 's1' })
+    mockApi.post.mockResolvedValueOnce({
+      userMessage: { id: 'u1', role: 'user', content: '方法是什么？' },
+      assistantMessage: {
+        id: 'a1',
+        role: 'assistant',
+        content: '方法见 [S1]',
+        sources: {
+          source_doc_ids: ['doc-1'],
+          source_chunks: ['method text'],
+          source_refs: [{
+            doc_id: 'doc-1',
+            file_name: 'paper.pdf',
+            paper_title: 'LIME',
+            chunk_id: 'chunk-1',
+            chunk_index: 0,
+            chunk_type: 'content',
+            content: 'method text',
+            section_title: '2 Method',
+            section_type: 'method',
+            page_start: 2,
+            page_end: 3,
+            labels: ['Eq. (8)'],
+            parser: 'mineru_precision',
+            score: 0.91,
+          }],
+          answer_mode: 'mentioned_docs',
+          evidence_status: 'reliable',
+        },
+      },
+    })
+
+    await useQAStore.getState().sendMessage('方法是什么？', ['doc-1'])
+
+    const messages = useQAStore.getState().messages
+    const assistant = messages[messages.length - 1]!
+    expect(assistant.sources?.refs?.[0]).toMatchObject({
+      paperTitle: 'LIME',
+      sectionTitle: '2 Method',
+      sectionType: 'method',
+      pageStart: 2,
+      pageEnd: 3,
+      labels: ['Eq. (8)'],
+      parser: 'mineru_precision',
+    })
+  })
 })

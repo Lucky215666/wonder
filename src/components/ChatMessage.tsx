@@ -9,6 +9,13 @@ interface SourceRef {
   chunk_type: 'profile' | 'summary' | 'content' | 'card'
   content: string
   score?: number | null
+  paperTitle?: string
+  sectionTitle?: string
+  sectionType?: string
+  pageStart?: number | null
+  pageEnd?: number | null
+  labels?: string[]
+  parser?: string | null
 }
 
 type AnswerMode = 'general' | 'rag_enhanced' | 'mentioned_docs' | 'compare_docs'
@@ -126,6 +133,20 @@ export default function ChatMessage({ role, content, avatar, sources, onSaveRese
                         </span>
                       )}
                     </div>
+                    {(() => {
+                      const metaBits = [
+                        ref.paperTitle,
+                        ref.sectionTitle,
+                        ref.pageStart ? `pp. ${ref.pageStart}${ref.pageEnd && ref.pageEnd !== ref.pageStart ? `-${ref.pageEnd}` : ''}` : '',
+                        ref.labels?.length ? ref.labels.join(', ') : '',
+                      ].filter(Boolean)
+                      if (metaBits.length === 0) return null
+                      return (
+                        <div style={{ fontSize: 11, color: 'var(--ink-faint)', marginTop: 2, paddingLeft: 20 }}>
+                          {metaBits.join(' · ')}
+                        </div>
+                      )
+                    })()}
                     <div className="wonder-chat-source__text">
                       {ref.content.length > 200 ? ref.content.slice(0, 200) + '...' : ref.content}
                     </div>

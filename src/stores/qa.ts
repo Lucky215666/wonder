@@ -17,6 +17,13 @@ export interface QASources {
     chunk_type: 'profile' | 'summary' | 'content' | 'card'
     content: string
     score?: number | null
+    paperTitle?: string
+    sectionTitle?: string
+    sectionType?: string
+    pageStart?: number | null
+    pageEnd?: number | null
+    labels?: string[]
+    parser?: string | null
   }>
   answerMode?: AnswerMode
   evidenceStatus?: EvidenceStatus
@@ -216,8 +223,40 @@ export const useQAStore = create<QAState>((set, get) => ({
 
       set(state => {
         const msgs = state.messages.slice(0, -1)
+
+        // Normalize assistant message sources from snake_case API format
+        const rawSources = (res.assistantMessage as any).sources
+        const normalizedSources: QASources | undefined = rawSources ? {
+          docIds: rawSources.source_doc_ids ?? rawSources.docIds ?? [],
+          chunks: rawSources.source_chunks ?? rawSources.chunks ?? [],
+          refs: Array.isArray(rawSources.source_refs) ? rawSources.source_refs.map((ref: any) => ({
+            doc_id: ref.doc_id,
+            file_name: ref.file_name,
+            chunk_id: ref.chunk_id ?? null,
+            chunk_index: ref.chunk_index ?? null,
+            chunk_type: ref.chunk_type,
+            content: ref.content,
+            score: ref.score ?? null,
+            paperTitle: ref.paper_title,
+            sectionTitle: ref.section_title,
+            sectionType: ref.section_type,
+            pageStart: ref.page_start,
+            pageEnd: ref.page_end,
+            labels: Array.isArray(ref.labels) ? ref.labels : [],
+            parser: ref.parser ?? null,
+          })) : rawSources.refs,
+          answerMode: rawSources.answer_mode ?? rawSources.answerMode,
+          evidenceStatus: rawSources.evidence_status ?? rawSources.evidenceStatus,
+        } : undefined
+
+        const assistantMsg: QAMessage = {
+          ...res.assistantMessage,
+          content: res.assistantMessage.content ?? (res.assistantMessage as any).answer ?? '',
+          sources: normalizedSources,
+        }
+
         return {
-          messages: [...msgs, res.userMessage, res.assistantMessage],
+          messages: [...msgs, res.userMessage, assistantMsg],
           loading: false,
         }
       })
