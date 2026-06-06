@@ -34,10 +34,12 @@ function createApp() {
     deleteKnowledgeBase: vi.fn(),
     deleteKnowledgeBaseCascade: vi.fn(),
     getDocumentsByKB: vi.fn(() => []),
+    getDocumentsByKBWithMetadata: vi.fn(() => []),
     addDocumentToKB: vi.fn(),
     removeDocumentFromKB: vi.fn(),
     getReadmeSuggestions: vi.fn(() => []),
     updateReadmeSuggestionStatus: vi.fn(),
+    getPaperChunkMetadataByDocument: vi.fn(() => []),
     getDocumentMetadata: vi.fn(() => ({
       document_id: 'doc-1',
       title: 'Test Paper Title',
@@ -62,6 +64,40 @@ function createApp() {
 }
 
 describe('knowledgeBaseRoutes - reindex', () => {
+  it('lists knowledge base documents with vector index metadata', async () => {
+    const { app, storage } = createApp()
+    storage.getDocumentsByKBWithMetadata.mockReturnValueOnce([
+      {
+        id: 'doc-1',
+        file_name: 'test.pdf',
+        title: 'Test Paper Title',
+        summary: 'Summary',
+        created_at: '2025-01-01',
+        index_status: 'indexed',
+        index_error: null,
+        collection_name: 'documents__openai_compatible__text_embedding_3_small__1536',
+        chunk_count: 2,
+        indexed_at: '2026-06-06 11:00:00',
+        embedding_provider: 'openai_compatible',
+        embedding_model: 'text-embedding-3-small',
+      },
+    ])
+
+    const res = await app.request('/api/knowledge-bases/kb-1/documents')
+    const body = await res.json()
+
+    expect(storage.getDocumentsByKBWithMetadata).toHaveBeenCalledWith('kb-1')
+    expect(storage.getDocumentsByKB).not.toHaveBeenCalled()
+    expect(body[0]).toEqual(expect.objectContaining({
+      index_status: 'indexed',
+      collection_name: 'documents__openai_compatible__text_embedding_3_small__1536',
+      chunk_count: 2,
+      indexed_at: '2026-06-06 11:00:00',
+      embedding_provider: 'openai_compatible',
+      embedding_model: 'text-embedding-3-small',
+    }))
+  })
+
   it('calls Python indexing endpoint with correct payload including ledger fields', async () => {
     const { app, python } = createApp()
 
@@ -317,6 +353,69 @@ describe('knowledgeBaseRoutes - add to KB', () => {
     })
 
     expect(res.status).toBe(400)
+  })
+
+  it('passes stored paper chunk metadata as paperChunks when indexing a KB document', async () => {
+    const { app, storage, python } = createApp()
+    storage.getDocument.mockReturnValue({
+      id: 'doc-1',
+      file_name: 'paper.pdf',
+      file_path: '',
+      file_type: 'pdf',
+      summary: 'summary',
+      reading_card: '',
+      relation_analysis: '',
+      writing_materials: '',
+      todo_list: '',
+      tags: '',
+    })
+    storage.getChunksByDocument.mockReturnValue([
+      { id: 'chunk-1', document_id: 'doc-1', content: 'method text', chunk_index: 0 },
+    ])
+    storage.getPaperChunkMetadataByDocument.mockReturnValue([
+      {
+        chunk_id: 'chunk-1',
+        document_id: 'doc-1',
+        chunk_type: 'content',
+        section_title: '2 Method',
+        section_type: 'method',
+        page_start: 2,
+        page_end: 3,
+        labels: JSON.stringify(['Eq. (8)']),
+        is_reference: 0,
+        prev_chunk_id: null,
+        next_chunk_id: null,
+        parser: 'mineru_precision',
+        parser_version: 'vlm',
+        created_at: '',
+        updated_at: '',
+      },
+    ])
+
+    await app.request('/api/knowledge-bases/kb-1/documents', {
+      method: 'POST',
+      body: JSON.stringify({ documentId: 'doc-1' }),
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+    const payload = python.post.mock.calls[0][1]
+    expect(payload.paperChunks).toEqual([{
+      chunkId: 'chunk-1',
+      text: 'method text',
+      chunkIndex: 0,
+      chunkType: 'content',
+      sectionTitle: '2 Method',
+      sectionType: 'method',
+      pageStart: 2,
+      pageEnd: 3,
+      labels: ['Eq. (8)'],
+      isReference: false,
+      prevChunkId: null,
+      nextChunkId: null,
+      parser: 'mineru_precision',
+      parserVersion: 'vlm',
+      blockTypes: [],
+    }])
   })
 })
 

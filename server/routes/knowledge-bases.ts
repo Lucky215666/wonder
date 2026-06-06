@@ -8,6 +8,34 @@ function buildCollectionName(provider: string, model: string, dimensions: number
   return `documents__${normalize(provider)}__${normalize(model)}__${dimensions}`
 }
 
+function buildPaperChunksPayload(storage: StorageService, docId: string, chunks: any[]) {
+  const metadataRows = storage.getPaperChunkMetadataByDocument(docId)
+  if (metadataRows.length === 0) return undefined
+  const byChunkId = new Map(metadataRows.map(row => [row.chunk_id, row]))
+  const payload = chunks.flatMap((chunk) => {
+    const meta = byChunkId.get(chunk.id)
+    if (!meta) return []
+    return [{
+      chunkId: chunk.id,
+      text: chunk.content,
+      chunkIndex: chunk.chunk_index,
+      chunkType: meta.chunk_type,
+      sectionTitle: meta.section_title ?? '',
+      sectionType: meta.section_type ?? 'unknown',
+      pageStart: meta.page_start ?? 0,
+      pageEnd: meta.page_end ?? 0,
+      labels: JSON.parse(meta.labels || '[]'),
+      isReference: Boolean(meta.is_reference),
+      prevChunkId: meta.prev_chunk_id,
+      nextChunkId: meta.next_chunk_id,
+      parser: meta.parser || 'pypdf',
+      parserVersion: meta.parser_version,
+      blockTypes: [],
+    }]
+  })
+  return payload.length > 0 ? payload : undefined
+}
+
 function buildMetadataPayload(storage: StorageService, doc: any, chunks: string[], tags: string[]) {
   const meta = storage.getDocumentMetadata(doc.id)
   const authors = meta?.authors ? JSON.parse(meta.authors) : []
@@ -132,7 +160,7 @@ export function knowledgeBaseRoutes(storage: StorageService, python: PythonBacke
 
   // Get documents in a knowledge base
   app.get('/:id/documents', (c) => {
-    const docs = storage.getDocumentsByKB(c.req.param('id'))
+    const docs = storage.getDocumentsByKBWithMetadata(c.req.param('id'))
     return c.json(docs)
   })
 
@@ -178,6 +206,7 @@ export function knowledgeBaseRoutes(storage: StorageService, python: PythonBacke
 
       const tags = doc.tags ? doc.tags.split(',').map(t => t.trim()).filter(Boolean) : []
       const metaPayload = buildMetadataPayload(storage, doc, chunkTexts, tags)
+      const paperChunks = buildPaperChunksPayload(storage, docId, chunks)
 
       python.post('/api/knowledge/documents/gateway', {
         doc_id: docId,
@@ -188,6 +217,7 @@ export function knowledgeBaseRoutes(storage: StorageService, python: PythonBacke
         embedding_model: embInfo.model,
         embedding_dimensions: embInfo.dimensions,
         ...metaPayload,
+        ...(paperChunks ? { paperChunks } : {}),
       }).then(() => {
         storage.updateDocumentLifecycle(docId, 'indexed')
         storage.markVectorIndexStatus(indexId, 'indexed')
@@ -316,6 +346,7 @@ export function knowledgeBaseRoutes(storage: StorageService, python: PythonBacke
     try {
       const tags = doc.tags ? doc.tags.split(',').map(t => t.trim()).filter(Boolean) : []
       const metaPayload = buildMetadataPayload(storage, doc, chunkTexts, tags)
+      const paperChunks = buildPaperChunksPayload(storage, docId, chunks)
 
       await python.post('/api/knowledge/documents/gateway', {
         doc_id: docId,
@@ -326,6 +357,7 @@ export function knowledgeBaseRoutes(storage: StorageService, python: PythonBacke
         embedding_model: embInfo.model,
         embedding_dimensions: embInfo.dimensions,
         ...metaPayload,
+        ...(paperChunks ? { paperChunks } : {}),
       })
       storage.updateDocumentLifecycle(docId, 'indexed')
       storage.markVectorIndexStatus(indexId, 'indexed')
