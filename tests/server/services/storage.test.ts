@@ -773,6 +773,73 @@ describe('StorageService', () => {
     expect(prev!.content).toBe('q1')
   })
 
+  // ── Paper Chunk Metadata tests ──────────────────────────────────────
+
+  it('should upsert and retrieve paper chunk metadata', () => {
+    storage.upsertDocument({ id: 'doc1', fileName: 'paper.pdf', fileType: 'pdf' })
+    storage.insertChunk({ id: 'chunk1', documentId: 'doc1', content: 'method text', chunkIndex: 0 })
+
+    storage.upsertPaperChunkMetadata({
+      chunkId: 'chunk1',
+      documentId: 'doc1',
+      chunkType: 'content',
+      sectionTitle: '2 Method',
+      sectionType: 'method',
+      pageStart: 2,
+      pageEnd: 3,
+      labels: ['Eq. (8)', 'Figure 4'],
+      isReference: false,
+      prevChunkId: null,
+      nextChunkId: 'chunk2',
+      parser: 'mineru_precision',
+      parserVersion: 'vlm',
+    })
+
+    const rows = storage.getPaperChunkMetadataByDocument('doc1')
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0].chunk_id).toBe('chunk1')
+    expect(rows[0].section_title).toBe('2 Method')
+    expect(rows[0].section_type).toBe('method')
+    expect(JSON.parse(rows[0].labels)).toEqual(['Eq. (8)', 'Figure 4'])
+    expect(rows[0].parser).toBe('mineru_precision')
+    expect(rows[0].parser_version).toBe('vlm')
+  })
+
+  it('should add paper chunk metadata table via migration', () => {
+    const oldDbPath = TEST_DB + '.paper-meta-old'
+    if (fs.existsSync(oldDbPath)) fs.unlinkSync(oldDbPath)
+    const oldDb = new Database(oldDbPath)
+    oldDb.exec(`
+      CREATE TABLE documents (
+        id TEXT PRIMARY KEY,
+        file_name TEXT NOT NULL,
+        file_type TEXT
+      );
+      CREATE TABLE chunks (
+        id TEXT PRIMARY KEY,
+        document_id TEXT NOT NULL,
+        content TEXT NOT NULL,
+        chunk_index INTEGER NOT NULL
+      );
+    `)
+    oldDb.close()
+
+    const migratedDb = new Database(oldDbPath)
+    const migratedStorage = new StorageService(migratedDb)
+
+    expect(
+      migratedDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='paper_chunk_metadata'").get()
+    ).toBeTruthy()
+
+    migratedDb.close()
+    fs.unlinkSync(oldDbPath)
+    for (const suffix of ['-wal', '-shm']) {
+      const f = oldDbPath + suffix
+      if (fs.existsSync(f)) fs.unlinkSync(f)
+    }
+  })
+
   // ── Document Metadata tests ──────────────────────────────────────────
 
   it('should upsert and retrieve document metadata', () => {
@@ -802,6 +869,36 @@ describe('StorageService', () => {
     const docs = storage.getDocumentsByKBWithMetadata('kb1')
     expect(docs[0].title).toBe('Paper Title')
     expect(docs[0].index_status).toBe('indexed')
+  })
+
+  it('should list the newest vector index version for KB documents', () => {
+    storage.createKnowledgeBase({ id: 'kb1', name: 'KB' })
+    storage.upsertDocument({ id: 'doc1', fileName: 'paper.pdf', fileType: 'pdf' })
+    storage.addDocumentToKB({ documentId: 'doc1', knowledgeBaseId: 'kb1' })
+    storage.upsertDocumentVectorIndex({
+      id: 'idx-old',
+      documentId: 'doc1',
+      knowledgeBaseId: 'kb1',
+      collectionName: 'documents__old',
+      chunkCount: 1,
+      indexVersion: 1,
+      status: 'stale',
+    })
+    storage.upsertDocumentVectorIndex({
+      id: 'idx-new',
+      documentId: 'doc1',
+      knowledgeBaseId: 'kb1',
+      collectionName: 'documents__new',
+      chunkCount: 2,
+      indexVersion: 2,
+      status: 'indexed',
+    })
+
+    const docs = storage.getDocumentsByKBWithMetadata('kb1')
+
+    expect(docs[0].index_status).toBe('indexed')
+    expect(docs[0].collection_name).toBe('documents__new')
+    expect(docs[0].chunk_count).toBe(2)
   })
 
   // ── Migration tests ─────────────────────────────────────────────────

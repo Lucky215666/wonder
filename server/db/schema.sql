@@ -34,6 +34,27 @@ CREATE TABLE IF NOT EXISTS chunks (
   chunk_index INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS paper_chunk_metadata (
+  chunk_id TEXT PRIMARY KEY REFERENCES chunks(id) ON DELETE CASCADE,
+  document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  chunk_type TEXT NOT NULL DEFAULT 'content',
+  section_title TEXT,
+  section_type TEXT NOT NULL DEFAULT 'unknown',
+  page_start INTEGER,
+  page_end INTEGER,
+  labels TEXT NOT NULL DEFAULT '[]',
+  is_reference INTEGER NOT NULL DEFAULT 0,
+  prev_chunk_id TEXT,
+  next_chunk_id TEXT,
+  parser TEXT NOT NULL DEFAULT 'pypdf',
+  parser_version TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_paper_chunk_metadata_doc ON paper_chunk_metadata(document_id);
+CREATE INDEX IF NOT EXISTS idx_paper_chunk_metadata_section ON paper_chunk_metadata(section_type);
+
 CREATE TABLE IF NOT EXISTS config (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL

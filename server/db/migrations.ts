@@ -17,6 +17,7 @@ export function runMigrations(db: Database.Database): void {
   applyMigration(db, 3, 'unify_paper_metadata', migrateUnifyPaperMetadata)
   applyMigration(db, 4, 'create_research_cards', migrateCreateResearchCards)
   applyMigration(db, 5, 'create_document_metadata', migrateCreateDocumentMetadata)
+  applyMigration(db, 6, 'create_paper_chunk_metadata', migrateCreatePaperChunkMetadata)
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
@@ -415,4 +416,30 @@ function migrateCreateDocumentMetadata(db: Database.Database): void {
   db.exec('CREATE INDEX IF NOT EXISTS idx_document_metadata_status ON document_metadata(metadata_status)')
 
   assertForeignKeyCheck(db, '5')
+}
+
+// ── Migration 6: Create paper_chunk_metadata ──────────────────────────
+
+function migrateCreatePaperChunkMetadata(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS paper_chunk_metadata (
+      chunk_id TEXT PRIMARY KEY REFERENCES chunks(id) ON DELETE CASCADE,
+      document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+      chunk_type TEXT NOT NULL DEFAULT 'content',
+      section_title TEXT,
+      section_type TEXT NOT NULL DEFAULT 'unknown',
+      page_start INTEGER,
+      page_end INTEGER,
+      labels TEXT NOT NULL DEFAULT '[]',
+      is_reference INTEGER NOT NULL DEFAULT 0,
+      prev_chunk_id TEXT,
+      next_chunk_id TEXT,
+      parser TEXT NOT NULL DEFAULT 'pypdf',
+      parser_version TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+  db.exec('CREATE INDEX IF NOT EXISTS idx_paper_chunk_metadata_doc ON paper_chunk_metadata(document_id)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_paper_chunk_metadata_section ON paper_chunk_metadata(section_type)')
 }

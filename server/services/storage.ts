@@ -247,6 +247,40 @@ export interface DocumentMetadataRow {
   updated_at: string
 }
 
+export interface PaperChunkMetadataRow {
+  chunk_id: string
+  document_id: string
+  chunk_type: string
+  section_title: string | null
+  section_type: string
+  page_start: number | null
+  page_end: number | null
+  labels: string
+  is_reference: number
+  prev_chunk_id: string | null
+  next_chunk_id: string | null
+  parser: string
+  parser_version: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface UpsertPaperChunkMetadataInput {
+  chunkId: string
+  documentId: string
+  chunkType: string
+  sectionTitle?: string | null
+  sectionType?: string
+  pageStart?: number | null
+  pageEnd?: number | null
+  labels?: string[]
+  isReference?: boolean
+  prevChunkId?: string | null
+  nextChunkId?: string | null
+  parser?: string
+  parserVersion?: string | null
+}
+
 // ── StorageService ──────────────────────────────────────────────────────
 
 export class StorageService {
@@ -1263,6 +1297,12 @@ export class StorageService {
     metadata_source: string
     index_status: string | null
     index_error: string | null
+    collection_name: string | null
+    chunk_count: number | null
+    embedding_provider: string | null
+    embedding_model: string | null
+    embedding_dimensions: number | null
+    indexed_at: string | null
   })[] {
     return this.db.prepare(`
       SELECT d.*,
@@ -1274,14 +1314,33 @@ export class StorageService {
         dm.title, dm.authors, dm.year, dm.venue, dm.doi, dm.abstract,
         dm.metadata_status, dm.metadata_source,
         dvi.status AS index_status,
-        dvi.error AS index_error
+        dvi.error AS index_error,
+        dvi.collection_name,
+        dvi.chunk_count,
+        dvi.embedding_provider,
+        dvi.embedding_model,
+        dvi.embedding_dimensions,
+        dvi.indexed_at
       FROM documents d
       INNER JOIN document_knowledge_bases dkb ON d.id = dkb.document_id
       LEFT JOIN document_analysis da ON d.id = da.document_id
       LEFT JOIN document_metadata dm ON d.id = dm.document_id
       LEFT JOIN (
-        SELECT document_id, knowledge_base_id, status, error,
-               ROW_NUMBER() OVER (PARTITION BY document_id, knowledge_base_id ORDER BY updated_at DESC) AS rn
+        SELECT document_id, knowledge_base_id, status, error, collection_name,
+               chunk_count, embedding_provider, embedding_model, embedding_dimensions,
+               indexed_at,
+               ROW_NUMBER() OVER (
+                 PARTITION BY document_id, knowledge_base_id
+                 ORDER BY index_version DESC, updated_at DESC,
+                   CASE status
+                     WHEN 'indexing' THEN 1
+                     WHEN 'indexed' THEN 2
+                     WHEN 'failed' THEN 3
+                     WHEN 'not_indexed' THEN 4
+                     WHEN 'stale' THEN 5
+                     ELSE 6
+                   END
+               ) AS rn
         FROM document_vector_indexes
       ) dvi ON d.id = dvi.document_id AND dvi.knowledge_base_id = dkb.knowledge_base_id AND dvi.rn = 1
       WHERE dkb.knowledge_base_id = ?
@@ -1299,7 +1358,62 @@ export class StorageService {
       metadata_source: string
       index_status: string | null
       index_error: string | null
+      collection_name: string | null
+      chunk_count: number | null
+      embedding_provider: string | null
+      embedding_model: string | null
+      embedding_dimensions: number | null
+      indexed_at: string | null
     })[]
+  }
+
+  // ── Paper Chunk Metadata methods ────────────────────────────────────
+
+  upsertPaperChunkMetadata(input: UpsertPaperChunkMetadataInput) {
+    this.db.prepare(`
+      INSERT INTO paper_chunk_metadata (
+        chunk_id, document_id, chunk_type, section_title, section_type,
+        page_start, page_end, labels, is_reference, prev_chunk_id,
+        next_chunk_id, parser, parser_version, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(chunk_id) DO UPDATE SET
+        document_id = excluded.document_id,
+        chunk_type = excluded.chunk_type,
+        section_title = excluded.section_title,
+        section_type = excluded.section_type,
+        page_start = excluded.page_start,
+        page_end = excluded.page_end,
+        labels = excluded.labels,
+        is_reference = excluded.is_reference,
+        prev_chunk_id = excluded.prev_chunk_id,
+        next_chunk_id = excluded.next_chunk_id,
+        parser = excluded.parser,
+        parser_version = excluded.parser_version,
+        updated_at = datetime('now')
+    `).run(
+      input.chunkId,
+      input.documentId,
+      input.chunkType || 'content',
+      input.sectionTitle ?? null,
+      input.sectionType || 'unknown',
+      input.pageStart ?? null,
+      input.pageEnd ?? null,
+      JSON.stringify(input.labels ?? []),
+      input.isReference ? 1 : 0,
+      input.prevChunkId ?? null,
+      input.nextChunkId ?? null,
+      input.parser || 'pypdf',
+      input.parserVersion ?? null,
+    )
+  }
+
+  getPaperChunkMetadataByDocument(documentId: string): PaperChunkMetadataRow[] {
+    return this.db.prepare(`
+      SELECT * FROM paper_chunk_metadata
+      WHERE document_id = ?
+      ORDER BY page_start IS NULL, page_start, chunk_id
+    `).all(documentId) as PaperChunkMetadataRow[]
   }
 
   // ── Lifecycle ───────────────────────────────────────────────────────
