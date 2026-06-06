@@ -4,6 +4,8 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any
 from backend.core.embedding import EmbeddingClient
 from backend.core.storage import StorageManager
+from backend.rag.paper_chunker import build_embedding_text
+from backend.rag.paper_types import PaperChunk, chroma_safe_metadata
 
 
 def build_document_profile_text(
@@ -70,6 +72,7 @@ class DocumentIndexer:
         year: Optional[int] = None,
         venue: Optional[str] = None,
         abstract: Optional[str] = None,
+        paper_chunks: Optional[List[PaperChunk]] = None,
     ) -> str:
         tags = tags or []
         created_at = datetime.now().isoformat()
@@ -85,12 +88,18 @@ class DocumentIndexer:
             tags=tags,
         )
 
-        texts_to_embed = [profile_text, summary] + chunks
+        content_documents = (
+            [build_embedding_text(paper_title or file_name, chunk) for chunk in paper_chunks]
+            if paper_chunks is not None
+            else chunks
+        )
+        texts_to_embed = [profile_text, summary] + content_documents
         embeddings = self.embedding.embed(texts_to_embed)
 
-        # Generate chunk IDs if not provided (profile + summary + chunks)
+        # Generate chunk IDs if not provided (profile + summary + content_chunks)
+        content_count = len(content_documents)
         if chunk_ids is None:
-            chunk_ids = [f"chunk-{uuid.uuid4()}" for _ in range(len(chunks) + 2)]
+            chunk_ids = [f"chunk-{uuid.uuid4()}" for _ in range(content_count + 2)]
 
         # Profile entry (index -1)
         ids = [f"{doc_id}_{knowledge_base_id}_profile"]
@@ -127,22 +136,49 @@ class DocumentIndexer:
         })
         documents.append(summary)
 
-        for i, chunk in enumerate(chunks):
-            ids.append(f"{doc_id}_{knowledge_base_id}_chunk_{i}")
-            metadatas.append({
-                "doc_id": doc_id,
-                "knowledge_base_id": knowledge_base_id,
-                "file_name": file_name,
-                "chunk_type": "content",
-                "chunk_index": i,
-                "tags": ",".join(tags),
-                "created_at": created_at,
-                "index_id": index_id or "",
-                "chunk_id": chunk_ids[i + 2],
-                "embedding_model": embedding_model or "",
-                "embedding_dimensions": embedding_dimensions or 0,
-            })
-            documents.append(chunk)
+        if paper_chunks is not None:
+            for i, paper_chunk in enumerate(paper_chunks):
+                ids.append(f"{doc_id}_{knowledge_base_id}_chunk_{i}")
+                paper_meta = chroma_safe_metadata(paper_chunk)
+                metadatas.append({
+                    "doc_id": doc_id,
+                    "knowledge_base_id": knowledge_base_id,
+                    "file_name": file_name,
+                    "paper_title": paper_title or "",
+                    "chunk_type": "content",
+                    "tags": ",".join(tags),
+                    "created_at": created_at,
+                    "index_id": index_id or "",
+                    "embedding_model": embedding_model or "",
+                    "embedding_dimensions": embedding_dimensions or 0,
+                    **paper_meta,
+                })
+                documents.append(content_documents[i])
+        else:
+            for i, chunk in enumerate(chunks):
+                ids.append(f"{doc_id}_{knowledge_base_id}_chunk_{i}")
+                metadatas.append({
+                    "doc_id": doc_id,
+                    "knowledge_base_id": knowledge_base_id,
+                    "file_name": file_name,
+                    "paper_title": paper_title or "",
+                    "chunk_type": "content",
+                    "chunk_index": i,
+                    "tags": ",".join(tags),
+                    "created_at": created_at,
+                    "index_id": index_id or "",
+                    "chunk_id": chunk_ids[i + 2],
+                    "embedding_model": embedding_model or "",
+                    "embedding_dimensions": embedding_dimensions or 0,
+                    "section_type": "",
+                    "section_title": "",
+                    "page_start": 0,
+                    "page_end": 0,
+                    "is_reference": False,
+                    "prev_chunk_id": "",
+                    "next_chunk_id": "",
+                })
+                documents.append(chunk)
 
         try:
             self.storage.add_to_collection(

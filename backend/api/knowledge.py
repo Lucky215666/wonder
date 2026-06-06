@@ -1,7 +1,7 @@
 import os
 import threading
 from fastapi import APIRouter, HTTPException
-from typing import Optional
+from typing import List, Optional
 
 from backend.core.config import ConfigManager
 from backend.core.embedding import EmbeddingClient
@@ -10,6 +10,7 @@ from backend.core.providers.factory import create_chat_provider, create_embeddin
 from backend.rag.retriever import RAGRetriever
 from backend.rag.research_card_retriever import ResearchCardRetriever
 from backend.rag.indexer import DocumentIndexer, build_collection_name
+from backend.rag.paper_types import PaperChunk as PaperChunkDomain
 from backend.agents.orchestrator import Orchestrator
 from backend.agents.literature import LiteratureParserAgent
 from backend.agents.relation import ProjectRelationAgent
@@ -152,6 +153,27 @@ async def index_gateway_document(request: KnowledgeIndexRequest):
 
         collection_name = build_collection_name(emb_provider_name, emb_model, emb_dimensions)
         indexer = DocumentIndexer(storage, embedding)
+
+        # Convert PaperChunkInput (API schema) to PaperChunk (domain model)
+        paper_chunks: Optional[List[PaperChunkDomain]] = None
+        if request.paper_chunks is not None:
+            paper_chunks = [
+                PaperChunkDomain(
+                    chunk_id=pc.chunk_id,
+                    text=pc.text,
+                    chunk_index=pc.chunk_index,
+                    section_type=pc.section_type,
+                    section_title=pc.section_title,
+                    page_start=pc.page_start,
+                    page_end=pc.page_end,
+                    is_reference=pc.is_reference,
+                    prev_chunk_id=pc.prev_chunk_id,
+                    next_chunk_id=pc.next_chunk_id,
+                    block_types=pc.block_types,
+                )
+                for pc in request.paper_chunks
+            ]
+
         doc_id = indexer.index_document(
             doc_id=request.doc_id,
             knowledge_base_id=request.knowledge_base_id,
@@ -170,6 +192,7 @@ async def index_gateway_document(request: KnowledgeIndexRequest):
             year=request.year,
             venue=request.venue,
             abstract=request.abstract,
+            paper_chunks=paper_chunks,
         )
         return {"doc_id": doc_id, "message": "Document indexed successfully"}
     except Exception as e:

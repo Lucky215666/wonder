@@ -212,6 +212,20 @@ class GatewayAnalysisResponse(BaseModel):
     source_chunks: List[str] = []
 
 
+class PaperChunkInput(BaseModel):
+    chunk_id: str = Field(alias="chunkId")
+    text: str
+    chunk_index: int = Field(alias="chunkIndex")
+    section_type: str = Field(default="unknown", alias="sectionType")
+    section_title: str = Field(default="", alias="sectionTitle")
+    page_start: int = Field(default=0, alias="pageStart")
+    page_end: int = Field(default=0, alias="pageEnd")
+    is_reference: bool = Field(default=False, alias="isReference")
+    prev_chunk_id: Optional[str] = Field(default=None, alias="prevChunkId")
+    next_chunk_id: Optional[str] = Field(default=None, alias="nextChunkId")
+    block_types: List[str] = Field(default_factory=list, alias="blockTypes")
+
+
 class KnowledgeIndexRequest(BaseModel):
     doc_id: str
     knowledge_base_id: str
@@ -229,6 +243,7 @@ class KnowledgeIndexRequest(BaseModel):
     abstract: Optional[str] = None
     keywords: List[str] = []
     metadata_status: Optional[str] = None
+    paper_chunks: Optional[List[PaperChunkInput]] = Field(default=None, alias="paperChunks")
 
     @field_validator("file_path", mode="before")
     @classmethod

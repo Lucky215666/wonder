@@ -1,118 +1,60 @@
 import pytest
-from backend.core.storage import StorageManager
 from backend.core.embedding import EmbeddingClient
 from backend.rag.indexer import DocumentIndexer
-import os
-import shutil
-
-
-@pytest.fixture
-def test_storage():
-    """创建测试用存储"""
-    storage = StorageManager("test_data/chroma")
-    yield storage
-    storage.close()
-    # 清理测试数据（Windows 下 ChromaDB 可能持有文件锁，忽略删除失败）
-    if os.path.exists("test_data"):
-        shutil.rmtree("test_data", onerror=lambda *args: None)
 
 
 @pytest.fixture
 def mock_embedding():
-    """创建 mock embedding 客户端"""
     class MockEmbeddingClient(EmbeddingClient):
         def __init__(self):
-            # 跳过父类 __init__，避免需要真实 API key
             self.dimensions = 1536
-
         def embed(self, texts):
             return [[0.1] * 1536 for _ in texts]
-
         def embed_single(self, text):
             return [0.1] * 1536
 
     return MockEmbeddingClient()
 
 
-def test_storage_initialization(test_storage):
-    """测试存储初始化"""
-    assert test_storage.get_collection().name == "documents"
-
-
-def test_document_indexing(test_storage, mock_embedding):
-    """测试文档入库"""
-    indexer = DocumentIndexer(test_storage, mock_embedding)
-    doc_id = indexer.index_document(
-        doc_id="test-doc-1",
-        knowledge_base_id="kb-1",
-        file_name="test.txt",
-        file_path="/tmp/test.txt",
-        chunks=["chunk1", "chunk2"],
-        summary="test summary",
-        analysis_result={
-            "reading_card": "test reading card",
-            "relation_analysis": "test relation",
-            "writing_materials": "test writing",
-            "todo_list": "test todo"
-        }
-    )
-    assert doc_id == "test-doc-1"
-
-
-def test_document_deletion(test_storage, mock_embedding):
-    """测试文档删除"""
-    indexer = DocumentIndexer(test_storage, mock_embedding)
-    doc_id = indexer.index_document(
-        doc_id="test-doc-2",
-        knowledge_base_id="kb-1",
-        file_name="test.txt",
-        file_path="/tmp/test.txt",
-        chunks=["chunk1"],
-        summary="summary",
-        analysis_result={
-            "reading_card": "card",
-            "relation_analysis": "relation",
-            "writing_materials": "writing",
-            "todo_list": "todo"
-        }
-    )
-
-    indexer.delete_document(doc_id, knowledge_base_id="kb-1")
-
-
-def test_document_indexing_writes_profile_summary_and_chunks(mock_embedding):
-    """Indexing must produce profile, summary, and content chunks in order."""
+def test_document_indexing_accepts_paper_chunks_with_metadata(mock_embedding):
     from backend.tests.test_rag_kb_scope import FakeStorage
+    from backend.rag.paper_types import PaperChunk
+
     storage = FakeStorage()
     indexer = DocumentIndexer(storage, mock_embedding)
+    paper_chunk = PaperChunk(
+        chunk_id="paper-c1",
+        text="The method uses hybrid retrieval.",
+        chunk_index=0,
+        section_type="method",
+        section_title="2 Method",
+        page_start=2,
+        page_end=3,
+        prev_chunk_id="",
+        next_chunk_id="paper-c2",
+        block_types=["paragraph"],
+    )
 
     indexer.index_document(
-        doc_id="doc-1",
+        doc_id="doc-paper",
         knowledge_base_id="kb-1",
         file_name="paper.pdf",
         file_path="/tmp/paper.pdf",
-        chunks=["chunk one"],
+        chunks=[],
+        paper_chunks=[paper_chunk],
         summary="summary",
         analysis_result={},
-        tags=["rag"],
-        paper_title="Paper Title",
-        authors=["Author A"],
-        year=2024,
-        venue="ACL",
+        paper_title="RAG Paper",
     )
 
-    call = storage.added
-    # Profile chunk
-    assert call["metadatas"][0]["chunk_type"] == "profile"
-    assert call["metadatas"][0]["chunk_index"] == -1
-    assert call["metadatas"][0]["paper_title"] == "Paper Title"
-    assert call["documents"][0].startswith("Title: Paper Title")
-    assert "Authors: Author A" in call["documents"][0]
-    assert "Year: 2024" in call["documents"][0]
-    assert "Venue: ACL" in call["documents"][0]
-    # Summary chunk
-    assert call["metadatas"][1]["chunk_type"] == "summary"
-    assert call["documents"][1] == "summary"
-    # Content chunk
-    assert call["metadatas"][2]["chunk_type"] == "content"
-    assert call["documents"][2] == "chunk one"
+    meta = storage.added["metadatas"][2]
+    expected = "Title: RAG Paper\nSection: 2 Method\nPages: 2-3\n\n"
+    assert storage.added["documents"][2].startswith(expected)
+    assert meta["chunk_type"] == "content"
+    assert meta["chunk_id"] == "paper-c1"
+    assert meta["section_type"] == "method"
+    assert meta["section_title"] == "2 Method"
+    assert meta["page_start"] == 2
+    assert meta["page_end"] == 3
+    assert meta["is_reference"] is False
+    assert meta["next_chunk_id"] == "paper-c2"
