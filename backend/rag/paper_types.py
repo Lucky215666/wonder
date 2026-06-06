@@ -13,8 +13,8 @@ class PaperPage:
 @dataclass(frozen=True)
 class PaperBlock:
     text: str
-    page_start: int
-    page_end: int
+    page_start: int = 0
+    page_end: int = 0
     block_type: str = "paragraph"
     section_type: str = "unknown"
     section_title: str = ""
