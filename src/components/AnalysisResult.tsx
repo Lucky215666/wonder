@@ -1,4 +1,4 @@
-import { Tag, Typography, Button, List } from 'antd'
+import { Tag, Typography, Button, List, Alert, Space } from 'antd'
 import {
   FileTextOutlined,
   BookOutlined,
@@ -52,6 +52,37 @@ const RELATION_LABELS: Record<string, { text: string; color: string }> = {
   extension: { text: '扩展', color: 'blue' },
   method_reference: { text: '方法参考', color: 'cyan' },
   unrelated: { text: '无关', color: 'default' },
+}
+
+const VERDICT_LABELS: Record<string, { text: string; color: string }> = {
+  must_read: { text: '必读', color: 'green' },
+  deep_read: { text: '精读', color: 'blue' },
+  skim: { text: '略读', color: 'default' },
+  ignore: { text: '忽略', color: 'red' },
+}
+
+const BEST_USE_LABELS: Record<string, string> = {
+  literature_review: '文献综述',
+  method_reference: '方法参考',
+  experiment_baseline: '实验对照',
+  background: '背景材料',
+  not_useful: '暂不使用',
+}
+
+function CompactList({ items }: { items?: string[] }) {
+  const safeItems = Array.isArray(items) ? items.filter(Boolean) : []
+  if (safeItems.length === 0) return null
+  return (
+    <List
+      size="small"
+      dataSource={safeItems}
+      renderItem={(item: string) => (
+        <List.Item style={{ padding: '4px 0', border: 'none', fontSize: 13.5, color: 'var(--ink-secondary)' }}>
+          {item}
+        </List.Item>
+      )}
+    />
+  )
 }
 
 function getFitScoreColor(score: number | undefined): string {
@@ -160,6 +191,82 @@ export default function AnalysisResult({ result, knowledgeBaseId, onAddToKB, fil
           )}
         </div>
       )}
+
+      {/* ─── Research Decision ─── */}
+      {result.decisionBrief && (
+        <Section icon={<AimOutlined />} title="研究决策">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <Tag color={VERDICT_LABELS[result.decisionBrief.verdict]?.color || 'default'}>
+                {VERDICT_LABELS[result.decisionBrief.verdict]?.text || result.decisionBrief.verdict}
+              </Tag>
+              <Tag>{BEST_USE_LABELS[result.decisionBrief.bestUse] || result.decisionBrief.bestUse}</Tag>
+              {typeof result.decisionBrief.confidence === 'number' && (
+                <Tag color="blue">置信度 {result.decisionBrief.confidence}/100</Tag>
+              )}
+            </div>
+            {result.decisionBrief.whyItMatters.length > 0 && (
+              <div>
+                <Typography.Text style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-caption)' }}>
+                  为什么重要
+                </Typography.Text>
+                <CompactList items={result.decisionBrief.whyItMatters} />
+              </div>
+            )}
+            {result.decisionBrief.nextAction && (
+              <Alert
+                type="info"
+                showIcon
+                message={result.decisionBrief.nextAction}
+                style={{ margin: 0 }}
+              />
+            )}
+          </div>
+        </Section>
+      )}
+
+      {/* ─── Knowledge Relation ─── */}
+      {(typeof result.knowledgeIncrementScore === 'number' ||
+        typeof result.evidenceStrengthScore === 'number' ||
+        typeof result.actionabilityScore === 'number' ||
+        result.decisionBrief?.noveltyPoints.length ||
+        result.decisionBrief?.overlapPoints.length ||
+        result.decisionBrief?.conflictOrRiskPoints.length) && (
+        <Section icon={<BulbOutlined />} title="知识关系">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <Space wrap>
+              {typeof result.knowledgeIncrementScore === 'number' && <Tag color="green">知识增量 {result.knowledgeIncrementScore}</Tag>}
+              {typeof result.evidenceStrengthScore === 'number' && <Tag color="blue">证据强度 {result.evidenceStrengthScore}</Tag>}
+              {typeof result.actionabilityScore === 'number' && <Tag color="purple">行动价值 {result.actionabilityScore}</Tag>}
+            </Space>
+            {result.decisionBrief?.noveltyPoints.length ? (
+              <div>
+                <Typography.Text style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-caption)' }}>新增价值</Typography.Text>
+                <CompactList items={result.decisionBrief.noveltyPoints} />
+              </div>
+            ) : null}
+            {result.decisionBrief?.overlapPoints.length ? (
+              <div>
+                <Typography.Text style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-caption)' }}>重复或已覆盖</Typography.Text>
+                <CompactList items={result.decisionBrief.overlapPoints} />
+              </div>
+            ) : null}
+            {result.decisionBrief?.conflictOrRiskPoints.length ? (
+              <div>
+                <Typography.Text style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-caption)' }}>冲突与风险</Typography.Text>
+                <CompactList items={result.decisionBrief.conflictOrRiskPoints} />
+              </div>
+            ) : null}
+          </div>
+        </Section>
+      )}
+
+      {/* ─── Key Takeaways ─── */}
+      {result.decisionBrief?.keyTakeaways.length ? (
+        <Section icon={<StarOutlined />} title="关键收获">
+          <CompactList items={result.decisionBrief.keyTakeaways} />
+        </Section>
+      ) : null}
 
       {/* ─── Fit Score Hero ─── */}
       {typeof fitScore === 'number' && Number.isFinite(fitScore) && (

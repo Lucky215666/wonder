@@ -268,6 +268,21 @@ describe('normalizeAnalysisResult', () => {
     })
   })
 
+  it('keeps legacy analysis results valid when decision brief is absent', () => {
+    const result = normalizeAnalysisResult({
+      summary: 'legacy summary',
+      reading_card: 'legacy card',
+      fit_score: 42,
+      fit_reason: 'partially relevant',
+      recommended_action: 'skim',
+    })
+
+    expect(result?.decisionBrief).toBeUndefined()
+    expect(result?.readingCard).toBe('legacy card')
+    expect(result?.knowledgeBaseFitScore).toBe(42)
+    expect(result?.recommendedAction).toBe('skim')
+  })
+
   describe('decision brief and focused signals', () => {
     it('normalizes decision brief and focused signals from snake_case analysis results', () => {
       const result = normalizeAnalysisResult({
