@@ -219,7 +219,7 @@ export default function Knowledge() {
           {/* README Suggestions */}
           <Card
             size="small"
-            style={{ flex: 1, display: 'flex', flexDirection: 'column', maxHeight: 480 }}
+            style={{ flex: 1, display: 'flex', flexDirection: 'column', height: 480 }}
             title={<><SettingOutlined /> README 建议</>}
             extra={readmeSuggestions.length > 0 ? <Tag color="orange">{readmeSuggestions.length}</Tag> : null}
             bodyStyle={{ flex: 1, overflow: 'hidden' }}
@@ -356,11 +356,12 @@ export default function Knowledge() {
                         </Typography.Text>
                       )}
                       {doc.year && <Tag style={{ fontSize: 11 }}>{doc.year}</Tag>}
-                      {doc.fit_score != null && <Tag color="blue">匹配 {doc.fit_score}</Tag>}
-                      {doc.recommended_action && <Tag style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.recommended_action}</Tag>}
-                    </div>
-                    <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
-                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'nowrap' }}>
+                        {doc.fit_score != null && <Tag color="blue">匹配 {doc.fit_score}</Tag>}
+                        {doc.recommended_action && <Tag style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.recommended_action}</Tag>}
+                      </div>
+                      <span style={{ flex: 1 }} />
+                      <Typography.Text type="secondary" style={{ fontSize: 12, flexShrink: 0 }}>
                         {new Date(doc.created_at).toLocaleDateString('zh-CN')}
                       </Typography.Text>
                     </div>

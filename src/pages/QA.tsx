@@ -197,7 +197,7 @@ export default function QA() {
         {/* Session sidebar */}
         <Card
           size="small"
-          style={{ width: 260, flexShrink: 0, display: 'flex', flexDirection: 'column' }}
+          style={{ width: 260, flexShrink: 0, display: 'flex', flexDirection: 'column', height: 520 }}
           title={<span style={{ fontSize: 14 }}>会话列表</span>}
           extra={
             <Button
@@ -278,7 +278,7 @@ export default function QA() {
             </Card>
           ) : (
             <>
-              <Card style={{ flex: 1, marginBottom: 12, display: 'flex', flexDirection: 'column', maxHeight: 520 }}>
+              <Card style={{ flex: 1, marginBottom: 12, display: 'flex', flexDirection: 'column', height: 520, overflow: 'hidden' }}>
                 <div
                   ref={listRef}
                   style={{ flex: 1, overflowY: 'auto', padding: '4px 0', minHeight: 350, maxHeight: 460 }}
