@@ -158,3 +158,14 @@ def test_migration_persists_to_disk(config_path):
 
     assert "normalized_config" in saved
     assert saved["normalized_config"]["chat"]["provider"] == "anthropic"
+
+
+def test_default_config_includes_mineru_settings(config_path):
+    manager = ConfigManager(str(config_path))
+    normalized = manager.load_normalized()
+
+    assert normalized["mineru"]["enabled"] is False
+    assert normalized["mineru"]["preferredMode"] == "precision"
+    assert normalized["mineru"]["modelVersion"] == "vlm"
+    assert normalized["mineru"]["timeoutSeconds"] == 120
+    assert normalized["mineru"]["pollIntervalSeconds"] == 2

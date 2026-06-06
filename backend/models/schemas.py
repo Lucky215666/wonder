@@ -104,11 +104,21 @@ class NormalizedResearchConfig(BaseModel):
     global_profile: str = Field(default="", alias="globalProfile")
 
 
+class MinerUConfigModel(BaseModel):
+    enabled: bool = False
+    api_token: str = Field(default="", alias="apiToken")
+    preferred_mode: Literal["precision", "agent"] = Field(default="precision", alias="preferredMode")
+    model_version: str = Field(default="vlm", alias="modelVersion")
+    timeout_seconds: int = Field(default=120, alias="timeoutSeconds")
+    poll_interval_seconds: int = Field(default=2, alias="pollIntervalSeconds")
+
+
 class NormalizedAppConfig(BaseModel):
     chat: ChatConfig = Field(default_factory=ChatConfig)
     embedding: NormalizedEmbeddingConfig = Field(default_factory=NormalizedEmbeddingConfig)
     knowledge: NormalizedKnowledgeConfig = Field(default_factory=NormalizedKnowledgeConfig)
     research: NormalizedResearchConfig = Field(default_factory=NormalizedResearchConfig)
+    mineru: MinerUConfigModel = Field(default_factory=MinerUConfigModel)
     nickname: Optional[str] = None
     avatar: Optional[str] = None
 

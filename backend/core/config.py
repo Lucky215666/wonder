@@ -63,6 +63,14 @@ DEFAULT_CONFIG = {
         "research": {
             "globalProfile": "",
         },
+        "mineru": {
+            "enabled": False,
+            "apiToken": "",
+            "preferredMode": "precision",
+            "modelVersion": "vlm",
+            "timeoutSeconds": 120,
+            "pollIntervalSeconds": 2,
+        },
     },
 }
 
@@ -134,6 +142,9 @@ class ConfigManager:
             },
             "research": {
                 "globalProfile": research.get("globalProfile", ""),
+            },
+            "mineru": {
+                **DEFAULT_CONFIG["normalized_config"]["mineru"],
             },
         }
         # Persist the migrated normalized config
