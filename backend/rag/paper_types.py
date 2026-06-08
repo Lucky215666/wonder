@@ -107,9 +107,23 @@ class RetrievalCandidate:
     section_intent_score: float = 0.0
     metadata_score: float = 0.0
     neighbor_bonus: float = 0.0
+    source_dense_score: float | None = None
+    zh_enrichment_score: float = 0.0
+    term_match_score: float = 0.0
 
     @property
     def final_score(self) -> float:
+        source_score = self.source_dense_score
+        if source_score is None:
+            source_score = self.dense_score
+        if self.zh_enrichment_score or self.term_match_score:
+            return (
+                0.35 * source_score
+                + 0.25 * self.zh_enrichment_score
+                + 0.20 * self.term_match_score
+                + 0.15 * self.section_intent_score
+                + 0.05 * self.metadata_score
+            )
         return (
             0.55 * self.dense_score
             + 0.20 * self.lexical_score

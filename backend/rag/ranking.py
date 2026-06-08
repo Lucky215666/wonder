@@ -110,3 +110,44 @@ def build_evidence_pack(
         })
     parts.append("\n\n".join(evidence_parts))
     return "\n\n---\n\n".join(parts), refs
+
+
+def merge_bilingual_candidates(candidates: list[RetrievalCandidate]) -> list[RetrievalCandidate]:
+    grouped: OrderedDict[tuple[str, str], dict[str, RetrievalCandidate]] = OrderedDict()
+    for candidate in candidates:
+        chunk_id = candidate.metadata.get("chunk_id") or candidate.content[:80]
+        key = (candidate.doc_id, chunk_id)
+        entry_kind = candidate.metadata.get("entry_kind") or "source"
+        grouped.setdefault(key, {})
+        previous = grouped[key].get(entry_kind)
+        if previous is None or candidate.dense_score > previous.dense_score:
+            grouped[key][entry_kind] = candidate
+
+    merged: list[RetrievalCandidate] = []
+    for entries in grouped.values():
+        source = entries.get("source")
+        zh = entries.get("zh_enrichment")
+        base = source or zh
+        if base is None:
+            continue
+        metadata = dict(base.metadata)
+        if zh is not None:
+            metadata.setdefault("zh_semantic_summary", zh.metadata.get("zh_semantic_summary", ""))
+            metadata.setdefault("zh_key_points", zh.metadata.get("zh_key_points", ""))
+            metadata.setdefault("terms_en", zh.metadata.get("terms_en", ""))
+            metadata.setdefault("terms_zh", zh.metadata.get("terms_zh", ""))
+        merged.append(RetrievalCandidate(
+            doc_id=base.doc_id,
+            file_name=base.file_name,
+            content=source.content if source is not None else base.content,
+            metadata=metadata,
+            dense_score=base.dense_score,
+            lexical_score=max((source.lexical_score if source else 0.0), (zh.lexical_score if zh else 0.0)),
+            section_intent_score=max((source.section_intent_score if source else 0.0), (zh.section_intent_score if zh else 0.0)),
+            metadata_score=max((source.metadata_score if source else 0.0), (zh.metadata_score if zh else 0.0)),
+            neighbor_bonus=source.neighbor_bonus if source else 0.0,
+            source_dense_score=source.dense_score if source else base.dense_score,
+            zh_enrichment_score=zh.dense_score if zh else 0.0,
+            term_match_score=max((source.term_match_score if source else 0.0), (zh.term_match_score if zh else 0.0)),
+        ))
+    return sorted(merged, key=lambda item: item.final_score, reverse=True)

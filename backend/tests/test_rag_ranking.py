@@ -1,6 +1,7 @@
 from backend.rag.ranking import (
     build_evidence_pack,
     lexical_score,
+    merge_bilingual_candidates,
     rerank_candidates,
     section_intent_score,
 )
@@ -64,3 +65,52 @@ def test_build_evidence_pack_uses_stable_source_ids_and_metadata():
     assert "[S1] file=paper.pdf title=RAG Paper section=2 Method pages=2-3" in context
     assert refs[0]["source_id"] == "S1"
     assert refs[0]["section_type"] == "method"
+
+
+def test_merge_bilingual_candidates_combines_scores_by_chunk_id():
+    source = RetrievalCandidate(
+        doc_id="d1",
+        file_name="paper.pdf",
+        content="English source text",
+        metadata={"chunk_id": "c1", "entry_kind": "source", "section_type": "method"},
+        dense_score=0.7,
+        lexical_score=0.1,
+    )
+    zh = RetrievalCandidate(
+        doc_id="d1",
+        file_name="paper.pdf",
+        content="中文辅助摘要",
+        metadata={
+            "chunk_id": "c1",
+            "entry_kind": "zh_enrichment",
+            "section_type": "method",
+            "zh_semantic_summary": "中文辅助摘要",
+        },
+        dense_score=0.9,
+        lexical_score=0.0,
+    )
+
+    merged = merge_bilingual_candidates([zh, source])
+
+    assert len(merged) == 1
+    assert merged[0].content == "English source text"
+    assert merged[0].metadata["zh_semantic_summary"] == "中文辅助摘要"
+    assert merged[0].source_dense_score == 0.7
+    assert merged[0].zh_enrichment_score == 0.9
+    assert merged[0].final_score > source.final_score
+
+
+def test_merge_bilingual_candidates_keeps_legacy_candidate_without_entry_kind():
+    legacy = RetrievalCandidate(
+        doc_id="d1",
+        file_name="paper.pdf",
+        content="legacy chunk",
+        metadata={"chunk_id": "legacy-c1", "chunk_type": "content"},
+        dense_score=0.6,
+    )
+
+    merged = merge_bilingual_candidates([legacy])
+
+    assert len(merged) == 1
+    assert merged[0].content == "legacy chunk"
+    assert merged[0].source_dense_score == 0.6
