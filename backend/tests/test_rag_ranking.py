@@ -114,3 +114,30 @@ def test_merge_bilingual_candidates_keeps_legacy_candidate_without_entry_kind():
     assert len(merged) == 1
     assert merged[0].content == "legacy chunk"
     assert merged[0].source_dense_score == 0.6
+
+
+def test_build_evidence_pack_marks_zh_helper_as_non_citable():
+    candidate = RetrievalCandidate(
+        doc_id="d1",
+        file_name="paper.pdf",
+        content="The method estimates an illumination map.",
+        metadata={
+            "chunk_id": "c1",
+            "chunk_type": "content",
+            "paper_title": "LIME",
+            "section_title": "2 Method",
+            "section_type": "method",
+            "page_start": 2,
+            "page_end": 2,
+            "zh_semantic_summary": "该方法估计照明图。",
+        },
+        dense_score=0.9,
+    )
+
+    context, refs = build_evidence_pack([candidate], max_chars=2000)
+
+    assert "source_text_en:" in context
+    assert "The method estimates an illumination map." in context
+    assert "zh_helper:" in context
+    assert "not independently citable" in context
+    assert refs[0]["zh_semantic_summary"] == "该方法估计照明图。"

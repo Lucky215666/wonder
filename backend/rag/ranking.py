@@ -86,7 +86,14 @@ def build_evidence_pack(
             f"[{source_id}] file={candidate.file_name} title={title} "
             f"section={section} pages={pages} score={candidate.final_score:.3f}"
         )
-        block = f"{header}\n{candidate.content.strip()}"
+        block = f"{header}\n\nsource_text_en:\n{candidate.content.strip()}"
+        zh_helper = str(meta.get("zh_semantic_summary") or "").strip()
+        if zh_helper:
+            block += (
+                "\n\nzh_helper:\n"
+                f"{zh_helper}\n"
+                "(Chinese helper text for understanding only; not independently citable.)"
+            )
         if used + len(block) > max_chars:
             break
         evidence_parts.append(block)
@@ -107,6 +114,14 @@ def build_evidence_pack(
             "paper_title": meta.get("paper_title") or None,
             "labels": _labels_from_meta(meta),
             "parser": meta.get("parser") or None,
+            "zh_semantic_summary": meta.get("zh_semantic_summary", ""),
+            "zh_key_points": meta.get("zh_key_points", ""),
+            "terms_en": meta.get("terms_en", ""),
+            "terms_zh": meta.get("terms_zh", ""),
+            "term_aliases": meta.get("term_aliases", ""),
+            "evidence_roles": meta.get("evidence_roles", ""),
+            "confidence_flags": meta.get("confidence_flags", ""),
+            "entry_kind": meta.get("entry_kind", ""),
         })
     parts.append("\n\n".join(evidence_parts))
     return "\n\n---\n\n".join(parts), refs

@@ -3,7 +3,7 @@ import pytest
 
 from backend.rag.research_card_indexer import build_research_card_embedding_text, ResearchCardIndexer
 from backend.rag.research_card_retriever import ResearchCardRetriever
-from backend.agents.orchestrator import Orchestrator
+from backend.agents.orchestrator import Orchestrator, classify_evidence
 
 
 # --- Fake helpers (aligned with test_rag_kb_scope.py patterns) ---
@@ -608,3 +608,34 @@ def test_readme_only_context_returns_none_evidence():
     assert result["source_refs"] == []
     assert result["answer_mode"] == "general"
     assert agent.last_evidence_status == "none"
+
+
+# --- classify_evidence unit tests ---
+
+
+def test_classify_evidence_returns_none_when_no_paper_refs():
+    # Empty refs
+    assert classify_evidence([]) == "none"
+    # Only reference section refs
+    assert classify_evidence([{"chunk_type": "content", "section_type": "references", "is_reference": False}]) == "none"
+    # Only is_reference=True
+    assert classify_evidence([{"chunk_type": "content", "is_reference": True}]) == "none"
+
+
+def test_classify_evidence_returns_reliable_when_best_score_high():
+    refs = [{"chunk_type": "content", "score": 0.5, "section_type": "method", "is_reference": False}]
+    assert classify_evidence(refs) == "reliable"
+
+
+def test_classify_evidence_returns_weak_when_best_score_low():
+    refs = [{"chunk_type": "content", "score": 0.2, "section_type": "method", "is_reference": False}]
+    assert classify_evidence(refs) == "weak"
+
+
+def test_classify_evidence_filters_reference_sections():
+    refs = [
+        {"chunk_type": "content", "score": 0.9, "section_type": "method", "is_reference": False},
+        {"chunk_type": "content", "score": 0.9, "section_type": "references", "is_reference": False},
+    ]
+    # Should only consider the method ref (score 0.9), which is >= 0.35, so "reliable"
+    assert classify_evidence(refs) == "reliable"

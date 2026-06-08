@@ -13,6 +13,8 @@ Requirements:
 5. Cite evidence block IDs like [S1] when making claims from papers.
 6. Background and knowledge-base README are not paper evidence.
 7. Research card context represents the user's previous synthesis. Do not present it as paper evidence unless source refs or paper chunks support it.
+8. In evidence blocks, source_text_en is citable paper evidence. zh_helper is only an interpretation aid and must never be cited by itself.
+9. If zh_helper conflicts with source_text_en, follow source_text_en.
 """
 
     NO_EVIDENCE_RULE = (
