@@ -88,6 +88,15 @@ def test_chroma_safe_metadata_keeps_only_scalar_values():
         "block_types": "paragraph,formula",
         "parser": "pypdf",
         "parser_version": "",
+        "source_language": "en",
+        "zh_semantic_summary": "",
+        "zh_key_points": "",
+        "terms_en": "",
+        "terms_zh": "",
+        "term_aliases": "",
+        "term_types": "",
+        "evidence_roles": "",
+        "confidence_flags": "",
     }
 
 

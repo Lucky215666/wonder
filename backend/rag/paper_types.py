@@ -64,6 +64,14 @@ class PaperDocument:
 
 
 @dataclass(frozen=True)
+class BilingualTerm:
+    canonical_en: str
+    zh: str
+    aliases: list[str] = field(default_factory=list)
+    term_type: str = "concept"
+
+
+@dataclass(frozen=True)
 class PaperChunk:
     chunk_id: str
     text: str
@@ -80,6 +88,12 @@ class PaperChunk:
     labels: list[str] = field(default_factory=list)
     parser: ParserName = "pypdf"
     parser_version: str | None = None
+    source_language: str = "en"
+    zh_semantic_summary: str = ""
+    zh_key_points: list[str] = field(default_factory=list)
+    terms: list[BilingualTerm] = field(default_factory=list)
+    evidence_roles: list[str] = field(default_factory=list)
+    confidence_flags: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -121,4 +135,43 @@ def chroma_safe_metadata(chunk: PaperChunk) -> dict:
         "block_types": ",".join(chunk.block_types),
         "parser": chunk.parser,
         "parser_version": chunk.parser_version or "",
+        "source_language": chunk.source_language,
+        "zh_semantic_summary": chunk.zh_semantic_summary,
+        "zh_key_points": _join_scalar(chunk.zh_key_points),
+        "terms_en": _join_scalar([term.canonical_en for term in chunk.terms]),
+        "terms_zh": _join_scalar([term.zh for term in chunk.terms]),
+        "term_aliases": _join_scalar([alias for term in chunk.terms for alias in term.aliases]),
+        "term_types": _join_scalar([term.term_type for term in chunk.terms]),
+        "evidence_roles": _join_scalar(chunk.evidence_roles),
+        "confidence_flags": _join_scalar(chunk.confidence_flags),
     }
+
+
+def _join_scalar(values: list[str], sep: str = "|") -> str:
+    return sep.join(str(value).strip() for value in values if str(value).strip())
+
+
+def enrichment_embedding_text(paper_title: str | None, chunk: PaperChunk) -> str:
+    title = paper_title or "Unknown"
+    key_points = "; ".join(chunk.zh_key_points)
+    terms = "; ".join(
+        f"{term.canonical_en} / {term.zh}"
+        for term in chunk.terms
+        if term.canonical_en or term.zh
+    )
+    aliases = "; ".join(alias for term in chunk.terms for alias in term.aliases)
+    roles = ", ".join(chunk.evidence_roles)
+    parts = [
+        f"Title: {title}",
+        f"Section: {chunk.section_title or chunk.section_type or 'unknown'}",
+        f"Chinese summary: {chunk.zh_semantic_summary}",
+    ]
+    if key_points:
+        parts.append(f"Chinese key points: {key_points}")
+    if terms:
+        parts.append(f"Terms: {terms}")
+    if aliases:
+        parts.append(f"Aliases: {aliases}")
+    if roles:
+        parts.append(f"Evidence roles: {roles}")
+    return "\n".join(part for part in parts if part.strip())
