@@ -16,6 +16,14 @@ interface SourceRef {
   pageEnd?: number | null
   labels?: string[]
   parser?: string | null
+  zh_semantic_summary?: string
+  zhSemanticSummary?: string
+  terms_en?: string
+  termsEn?: string
+  terms_zh?: string
+  termsZh?: string
+  confidence_flags?: string
+  confidenceFlags?: string
 }
 
 type AnswerMode = 'general' | 'rag_enhanced' | 'mentioned_docs' | 'compare_docs'
@@ -147,6 +155,17 @@ export default function ChatMessage({ role, content, avatar, sources, onSaveRese
                         </div>
                       )
                     })()}
+                    {(ref.terms_en || ref.terms_zh) && (
+                      <div style={{ fontSize: 11, color: 'var(--ink-faint)', marginTop: 2, paddingLeft: 20, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {ref.terms_zh && <span>{ref.terms_zh}</span>}
+                        {ref.terms_en && <span style={{ color: 'var(--ink-ghost)' }}>({ref.terms_en})</span>}
+                      </div>
+                    )}
+                    {ref.zh_semantic_summary && (
+                      <div style={{ fontSize: 11, color: 'var(--ink-faint)', marginTop: 2, paddingLeft: 20, fontStyle: 'italic' }}>
+                        {ref.zh_semantic_summary}
+                      </div>
+                    )}
                     <div className="wonder-chat-source__text">
                       {ref.content.length > 200 ? ref.content.slice(0, 200) + '...' : ref.content}
                     </div>

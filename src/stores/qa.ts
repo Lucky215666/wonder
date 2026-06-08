@@ -24,6 +24,14 @@ export interface QASources {
     pageEnd?: number | null
     labels?: string[]
     parser?: string | null
+    zh_semantic_summary?: string
+    zhSemanticSummary?: string
+    terms_en?: string
+    termsEn?: string
+    terms_zh?: string
+    termsZh?: string
+    confidence_flags?: string
+    confidenceFlags?: string
   }>
   answerMode?: AnswerMode
   evidenceStatus?: EvidenceStatus
@@ -244,6 +252,10 @@ export const useQAStore = create<QAState>((set, get) => ({
             pageEnd: ref.page_end,
             labels: Array.isArray(ref.labels) ? ref.labels : [],
             parser: ref.parser ?? null,
+            zh_semantic_summary: ref.zh_semantic_summary ?? ref.zhSemanticSummary ?? '',
+            terms_en: ref.terms_en ?? ref.termsEn ?? '',
+            terms_zh: ref.terms_zh ?? ref.termsZh ?? '',
+            confidence_flags: ref.confidence_flags ?? ref.confidenceFlags ?? '',
           })) : rawSources.refs,
           answerMode: rawSources.answer_mode ?? rawSources.answerMode,
           evidenceStatus: rawSources.evidence_status ?? rawSources.evidenceStatus,
