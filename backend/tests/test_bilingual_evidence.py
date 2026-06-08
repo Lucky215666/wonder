@@ -120,3 +120,66 @@ def test_fallback_bilingual_enrichment_marks_missing_model_output():
     assert enrichment.zh_semantic_summary
     assert "experiment" in enrichment.evidence_roles
     assert "zh_summary_uncertain" in enrichment.confidence_flags
+
+
+from backend.rag.indexer import DocumentIndexer
+
+
+class FakeEmbedding:
+    def embed(self, texts):
+        self.texts = texts
+        return [[float(i), 0.0, 0.0] for i, _ in enumerate(texts)]
+
+
+class FakeStorage:
+    def add_to_collection(self, ids, embeddings, metadatas, documents, collection_name=None):
+        self.added = {
+            "ids": ids,
+            "embeddings": embeddings,
+            "metadatas": metadatas,
+            "documents": documents,
+            "collection_name": collection_name,
+        }
+
+
+def test_indexer_writes_source_and_zh_enrichment_entries_for_paper_chunks():
+    storage = FakeStorage()
+    embedding = FakeEmbedding()
+    indexer = DocumentIndexer(storage, embedding)
+    chunk = PaperChunk(
+        chunk_id="c1",
+        text="The method estimates an illumination map.",
+        chunk_index=0,
+        section_type="method",
+        section_title="2 Method",
+        page_start=2,
+        page_end=2,
+        zh_semantic_summary="该方法估计照明图。",
+        zh_key_points=["低光增强"],
+        terms=[BilingualTerm(canonical_en="illumination map", zh="照明图", term_type="concept")],
+        evidence_roles=["method"],
+    )
+
+    indexer.index_document(
+        doc_id="doc-1",
+        knowledge_base_id="kb-1",
+        file_name="paper.pdf",
+        file_path="paper.pdf",
+        chunks=[],
+        summary="summary",
+        analysis_result={},
+        paper_title="LIME",
+        paper_chunks=[chunk],
+    )
+
+    metas = storage.added["metadatas"]
+    source_meta = next(meta for meta in metas if meta.get("entry_kind") == "source")
+    zh_meta = next(meta for meta in metas if meta.get("entry_kind") == "zh_enrichment")
+
+    assert source_meta["chunk_id"] == "c1"
+    assert source_meta["chunk_type"] == "content"
+    assert zh_meta["chunk_id"] == "c1"
+    assert zh_meta["chunk_type"] == "content"
+    assert zh_meta["zh_semantic_summary"] == "该方法估计照明图。"
+    assert len(storage.added["documents"]) == 4
+    assert any("Chinese summary: 该方法估计照明图。" in text for text in storage.added["documents"])

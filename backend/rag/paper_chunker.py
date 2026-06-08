@@ -1,6 +1,6 @@
 import uuid
 
-from backend.rag.paper_types import PaperChunk, PaperDocument
+from backend.rag.paper_types import PaperChunk, PaperDocument, enrichment_embedding_text
 
 SPECIAL_CHUNK_TYPES = {
     "abstract": "abstract",

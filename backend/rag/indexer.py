@@ -5,7 +5,7 @@ from typing import List, Optional, Dict, Any
 from backend.core.embedding import EmbeddingClient
 from backend.core.storage import StorageManager
 from backend.rag.paper_chunker import build_embedding_text
-from backend.rag.paper_types import PaperChunk, chroma_safe_metadata
+from backend.rag.paper_types import PaperChunk, chroma_safe_metadata, enrichment_embedding_text
 
 
 def build_document_profile_text(
@@ -88,12 +88,19 @@ class DocumentIndexer:
             tags=tags,
         )
 
-        content_documents = (
-            [build_embedding_text(paper_title or file_name, chunk) for chunk in paper_chunks]
-            if paper_chunks is not None
-            else chunks
-        )
-        texts_to_embed = [profile_text, summary] + content_documents
+        if paper_chunks is not None:
+            source_documents = [build_embedding_text(paper_title or file_name, chunk) for chunk in paper_chunks]
+            enrichment_documents = [
+                enrichment_embedding_text(paper_title or file_name, chunk)
+                for chunk in paper_chunks
+                if chunk.zh_semantic_summary or chunk.zh_key_points or chunk.terms
+            ]
+            content_documents = source_documents
+            texts_to_embed = [profile_text, summary] + source_documents + enrichment_documents
+        else:
+            content_documents = chunks
+            enrichment_documents = []
+            texts_to_embed = [profile_text, summary] + content_documents
         embeddings = self.embedding.embed(texts_to_embed)
 
         # Generate chunk IDs if not provided (profile + summary + content_chunks)
@@ -116,6 +123,7 @@ class DocumentIndexer:
             "chunk_id": chunk_ids[0],
             "embedding_model": embedding_model or "",
             "embedding_dimensions": embedding_dimensions or 0,
+            "entry_kind": "profile",
         }]
         documents = [profile_text]
 
@@ -133,12 +141,14 @@ class DocumentIndexer:
             "chunk_id": chunk_ids[1],
             "embedding_model": embedding_model or "",
             "embedding_dimensions": embedding_dimensions or 0,
+            "entry_kind": "summary",
         })
         documents.append(summary)
 
         if paper_chunks is not None:
             for i, paper_chunk in enumerate(paper_chunks):
-                ids.append(f"{doc_id}_{knowledge_base_id}_chunk_{i}")
+                # Source entry
+                ids.append(f"{doc_id}_{knowledge_base_id}_chunk_{i}_source")
                 paper_meta = chroma_safe_metadata(paper_chunk)
                 metadatas.append({
                     "doc_id": doc_id,
@@ -150,9 +160,28 @@ class DocumentIndexer:
                     "index_id": index_id or "",
                     "embedding_model": embedding_model or "",
                     "embedding_dimensions": embedding_dimensions or 0,
+                    "entry_kind": "source",
                     **paper_meta,
                 })
-                documents.append(content_documents[i])
+                documents.append(source_documents[i])
+
+                # Enrichment entry (only if useful)
+                if paper_chunk.zh_semantic_summary or paper_chunk.zh_key_points or paper_chunk.terms:
+                    ids.append(f"{doc_id}_{knowledge_base_id}_chunk_{i}_zh")
+                    metadatas.append({
+                        "doc_id": doc_id,
+                        "knowledge_base_id": knowledge_base_id,
+                        "file_name": file_name,
+                        "paper_title": paper_title or "",
+                        "tags": ",".join(tags),
+                        "created_at": created_at,
+                        "index_id": index_id or "",
+                        "embedding_model": embedding_model or "",
+                        "embedding_dimensions": embedding_dimensions or 0,
+                        "entry_kind": "zh_enrichment",
+                        **paper_meta,
+                    })
+                    documents.append(enrichment_embedding_text(paper_title or file_name, paper_chunk))
         else:
             for i, chunk in enumerate(chunks):
                 ids.append(f"{doc_id}_{knowledge_base_id}_chunk_{i}")
@@ -169,6 +198,7 @@ class DocumentIndexer:
                     "chunk_id": chunk_ids[i + 2],
                     "embedding_model": embedding_model or "",
                     "embedding_dimensions": embedding_dimensions or 0,
+                    "entry_kind": "source",
                     "section_type": "",
                     "section_title": "",
                     "page_start": 0,
