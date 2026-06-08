@@ -427,7 +427,7 @@ def test_retriever_queries_multiple_collections():
         collection_names=collections,
     )
 
-    assert len(storage.queried_collections) == 4  # 2 summary + 2 content queries
+    assert len(storage.queried_collections) == 8  # 2 summary + 2 content per collection (bilingual paths)
     assert all(c in storage.queried_collections for c in collections)
 
 

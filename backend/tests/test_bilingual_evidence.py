@@ -130,6 +130,9 @@ class FakeEmbedding:
         self.texts = texts
         return [[float(i), 0.0, 0.0] for i, _ in enumerate(texts)]
 
+    def embed_single(self, text):
+        return [0.0, 0.0, 0.0]
+
 
 class FakeStorage:
     def add_to_collection(self, ids, embeddings, metadatas, documents, collection_name=None):
@@ -183,3 +186,64 @@ def test_indexer_writes_source_and_zh_enrichment_entries_for_paper_chunks():
     assert zh_meta["zh_semantic_summary"] == "该方法估计照明图。"
     assert len(storage.added["documents"]) == 4
     assert any("Chinese summary: 该方法估计照明图。" in text for text in storage.added["documents"])
+
+
+from backend.rag.retriever import RAGRetriever
+
+
+class BilingualQueryStorage:
+    def __init__(self):
+        self.where_filters = []
+
+    def query_collection(self, query_embeddings, n_results, where=None, collection_name=None):
+        self.where_filters.append(where)
+        if where and "$and" in where and {"entry_kind": "zh_enrichment"} in where["$and"]:
+            return {
+                "documents": [["Chinese summary: 该方法估计照明图。"]],
+                "metadatas": [[{
+                    "doc_id": "doc-1",
+                    "file_name": "paper.pdf",
+                    "chunk_id": "c1",
+                    "chunk_type": "content",
+                    "entry_kind": "zh_enrichment",
+                    "section_type": "method",
+                    "zh_semantic_summary": "该方法估计照明图。",
+                    "terms_en": "illumination map",
+                    "terms_zh": "照明图",
+                }]],
+                "distances": [[0.1]],
+            }
+        if where and "$and" in where and {"entry_kind": "source"} in where["$and"]:
+            return {
+                "documents": [["The method estimates an illumination map."]],
+                "metadatas": [[{
+                    "doc_id": "doc-1",
+                    "file_name": "paper.pdf",
+                    "chunk_id": "c1",
+                    "chunk_type": "content",
+                    "entry_kind": "source",
+                    "section_type": "method",
+                    "section_title": "2 Method",
+                    "page_start": 2,
+                    "page_end": 2,
+                    "paper_title": "LIME",
+                }]],
+                "distances": [[0.3]],
+            }
+        return {"documents": [[]], "metadatas": [[]], "distances": [[]]}
+
+
+def test_retriever_merges_chinese_enrichment_with_english_source():
+    storage = BilingualQueryStorage()
+    retriever = RAGRetriever(storage, FakeEmbedding())
+
+    result = retriever.retrieve(
+        query="这篇论文的方法怎么做？",
+        knowledge_base_id="kb-1",
+        top_k_docs=1,
+        top_k_chunks=3,
+    )
+
+    assert result.chunks == ["The method estimates an illumination map."]
+    assert "[S1]" in result.context
+    assert result.source_refs[0]["content"] == "The method estimates an illumination map."

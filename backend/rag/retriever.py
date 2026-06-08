@@ -6,9 +6,11 @@ from backend.rag.paper_types import RetrievalCandidate
 from backend.rag.ranking import (
     build_evidence_pack,
     lexical_score,
+    merge_bilingual_candidates,
     rerank_candidates,
     section_intent_score,
 )
+from backend.rag.query_normalizer import normalize_query
 
 
 @dataclass
@@ -34,7 +36,31 @@ class RAGRetriever:
     def _score_from_distance(distance: float | None) -> float:
         return 1 - distance / 2 if distance is not None else 0.0
 
-    def _result_to_candidates(self, query: str, result: Dict) -> List[RetrievalCandidate]:
+    def _query_content_by_entry_kind(
+        self,
+        query_embedding: List[float],
+        collection_name: Optional[str],
+        knowledge_base_id: Optional[str],
+        doc_ids: Optional[List[str]],
+        entry_kind: str,
+        top_k_chunks: int,
+    ) -> Dict:
+        filters: List[Dict[str, Any]] = [
+            {"chunk_type": "content"},
+            {"entry_kind": entry_kind},
+        ]
+        if knowledge_base_id:
+            filters.append({"knowledge_base_id": knowledge_base_id})
+        if doc_ids:
+            filters.append({"doc_id": {"$in": doc_ids}})
+        return self.storage.query_collection(
+            query_embeddings=[query_embedding],
+            n_results=top_k_chunks,
+            where={"$and": filters},
+            collection_name=collection_name,
+        )
+
+    def _result_to_candidates(self, query: str, result: Dict, query_terms: Optional[List[str]] = None) -> List[RetrievalCandidate]:
         docs = result.get("documents", [[]])[0] if result.get("documents") else []
         metas = result.get("metadatas", [[]])[0] if result.get("metadatas") else []
         dists = result.get("distances", [[]])[0] if result.get("distances") else []
@@ -44,6 +70,13 @@ class RAGRetriever:
             if meta.get("is_reference") is True or meta.get("section_type") == "references":
                 continue
             dense = self._score_from_distance(dists[i] if i < len(dists) else None)
+            term_text = " ".join([
+                str(meta.get("terms_en", "")),
+                str(meta.get("terms_zh", "")),
+                str(meta.get("term_aliases", "")),
+                doc,
+            ])
+            term_score = lexical_score(" ".join(query_terms or []), term_text) if query_terms else 0.0
             candidates.append(RetrievalCandidate(
                 doc_id=meta.get("doc_id", ""),
                 file_name=meta.get("file_name", "unknown"),
@@ -56,6 +89,7 @@ class RAGRetriever:
                     doc,
                 ])),
                 section_intent_score=section_intent_score(query, meta),
+                term_match_score=term_score,
                 metadata_score=0.1 if meta.get("paper_title") else 0.0,
             ))
         return candidates
@@ -150,15 +184,17 @@ class RAGRetriever:
             raise ValueError("query must not be empty")
         query_embedding = self.embedding.embed_single(query)
 
+        query_plan = normalize_query(query)
+        expanded_query = " ".join([query, *query_plan.query_en_expansion, *query_plan.terms])
+        expanded_embedding = self.embedding.embed_single(expanded_query) if expanded_query != query else query_embedding
+
         if collection_names:
             # Query multiple collections and merge results
             all_summaries_docs: List[str] = []
             all_summaries_metas: List[Dict] = []
             all_summaries_dists: List[float] = []
-            all_chunks_docs: List[str] = []
-            all_chunks_metas: List[Dict] = []
-            all_chunks_dists: List[float] = []
             all_matched_doc_ids: List[str] = []
+            all_candidates: List[RetrievalCandidate] = []
 
             for cname in collection_names:
                 s_result, c_result, m_ids = self._query_single_collection(
@@ -174,12 +210,17 @@ class RAGRetriever:
                 all_summaries_metas.extend(s_metas)
                 all_summaries_dists.extend(s_dists)
 
-                c_docs = c_result.get("documents", [[]])[0] if c_result.get("documents") else []
-                c_metas = c_result.get("metadatas", [[]])[0] if c_result.get("metadatas") else []
-                c_dists = c_result.get("distances", [[]])[0] if c_result.get("distances") else []
-                all_chunks_docs.extend(c_docs)
-                all_chunks_metas.extend(c_metas)
-                all_chunks_dists.extend(c_dists)
+                source_result = self._query_content_by_entry_kind(
+                    expanded_embedding, cname, knowledge_base_id, doc_ids, "source", top_k_chunks
+                )
+                zh_result = self._query_content_by_entry_kind(
+                    query_embedding, cname, knowledge_base_id, doc_ids, "zh_enrichment", top_k_chunks
+                )
+                all_candidates.extend(self._result_to_candidates(query, source_result, query_plan.terms))
+                all_candidates.extend(self._result_to_candidates(query, zh_result, query_plan.terms))
+
+                if c_result.get("documents") and c_result["documents"][0]:
+                    all_candidates.extend(self._result_to_candidates(query, c_result, query_plan.terms))
 
             # Sort by distance (lower = more similar) and keep top_k
             if all_summaries_dists:
@@ -193,23 +234,58 @@ class RAGRetriever:
             else:
                 summaries_result = {"documents": [[]], "metadatas": [[]], "distances": [[]]}
 
-            if all_chunks_dists:
-                chunk_order = sorted(range(len(all_chunks_dists)), key=lambda i: all_chunks_dists[i])
-                chunk_order = chunk_order[:top_k_chunks]
-                chunks_result = {
-                    "documents": [[all_chunks_docs[i] for i in chunk_order]],
-                    "metadatas": [[all_chunks_metas[i] for i in chunk_order]],
-                    "distances": [[all_chunks_dists[i] for i in chunk_order]],
-                }
-            else:
-                chunks_result = {"documents": [[]], "metadatas": [[]], "distances": [[]]}
-
             # Extract doc_ids from top-k sorted summaries only
             matched_doc_ids = list(dict.fromkeys(
                 all_summaries_metas[i].get("doc_id", "")
                 for i in summary_order
                 if "doc_id" in all_summaries_metas[i]
             )) if all_summaries_dists else []
+
+            chunks_result = {"documents": [[]], "metadatas": [[]], "distances": [[]]}
+
+            # Rank multi-collection candidates with bilingual merge
+            candidates = all_candidates
+            ranked_candidates = merge_bilingual_candidates(candidates)[:top_k_chunks]
+            if not ranked_candidates:
+                ranked_candidates = rerank_candidates(candidates)[:top_k_chunks]
+
+            if ranked_candidates:
+                context, evidence_refs = build_evidence_pack(
+                    ranked_candidates,
+                    max_chars=max_context_tokens,
+                )
+                source_refs = self._dedupe_refs(
+                    evidence_refs + self._build_source_refs(
+                        summaries_result,
+                        {"documents": [[]], "metadatas": [[]], "distances": [[]]},
+                    )
+                )
+                chunks = [candidate.content for candidate in ranked_candidates]
+            else:
+                context = self._build_context(summaries_result, chunks_result, max_context_tokens)
+                source_refs = self._dedupe_refs(self._build_source_refs(summaries_result, chunks_result))
+                chunks = chunks_result.get("documents", [[]])[0] if chunks_result.get("documents") else []
+
+            summary_scores = [
+                ref["score"] for ref in source_refs
+                if ref["chunk_type"] == "summary" and ref.get("score") is not None
+            ]
+            if summary_scores:
+                retrieval_confidence = sum(summary_scores) / len(summary_scores)
+            elif ranked_candidates:
+                candidate_scores = [c.final_score for c in ranked_candidates if c.final_score > 0]
+                retrieval_confidence = sum(candidate_scores) / len(candidate_scores) if candidate_scores else 0.0
+            else:
+                retrieval_confidence = 0.0
+
+            return RetrievalResult(
+                summaries=summaries_result.get("documents", [[]])[0] if summaries_result.get("documents") else [],
+                chunks=chunks,
+                context=context,
+                source_doc_ids=matched_doc_ids,
+                source_refs=source_refs,
+                retrieval_confidence=retrieval_confidence,
+            )
         else:
             # Single collection (backward compatible)
             summaries_result, chunks_result, matched_doc_ids = self._query_single_collection(
@@ -217,9 +293,21 @@ class RAGRetriever:
                 top_k_docs, top_k_chunks,
             )
 
-        # Build ranked candidates using hybrid scoring
-        candidates = self._result_to_candidates(query, chunks_result)
-        ranked_candidates = rerank_candidates(candidates)[:top_k_chunks]
+        # Build ranked candidates using bilingual multi-path scoring
+        source_result = self._query_content_by_entry_kind(
+            expanded_embedding, None, knowledge_base_id, doc_ids, "source", top_k_chunks
+        )
+        zh_result = self._query_content_by_entry_kind(
+            query_embedding, None, knowledge_base_id, doc_ids, "zh_enrichment", top_k_chunks
+        )
+        candidates = []
+        candidates.extend(self._result_to_candidates(query, source_result, query_plan.terms))
+        candidates.extend(self._result_to_candidates(query, zh_result, query_plan.terms))
+        if not candidates:
+            candidates.extend(self._result_to_candidates(query, chunks_result, query_plan.terms))
+        ranked_candidates = merge_bilingual_candidates(candidates)[:top_k_chunks]
+        if not ranked_candidates:
+            ranked_candidates = rerank_candidates(candidates)[:top_k_chunks]
 
         if ranked_candidates:
             context, evidence_refs = build_evidence_pack(
